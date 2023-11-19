@@ -36,7 +36,8 @@ def backtest(
     E.G. if you are using hourly data in a 24-hour market such as crypto, you should pass in 24.
     Performance is reported on a per-asset basis and also as a combined portfolio.
     Annualised metrics always assume a 252 day trading year.
-    Note: the portfolio report assumes an equal-weighted approach.
+    
+    Note: the portfolio report equal-weights all of the assets (1 / number of assets).
 
     Parameters:
     strategy_weights (pd.DataFrame): The weights (-1 to 1) of the assets in the strategy at each interval.
