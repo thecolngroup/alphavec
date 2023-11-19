@@ -16,7 +16,7 @@ $$  __$$ |$$ |$$ |  $$ |$$ |  $$ |$$  __$$ | \$$$  /  $$   ____|$$ |
 
 Alphavec is a fast, minimalist, and cost-aware backtester inspired by https://github.com/Robot-Wealth/rsims.
 
-The backtest input is the natural output of a typical quant research process, simply 2 datframes, one of strategy weights, and one of asset prices.
+The backtest input is the natural output of a typical quant research process, simply 2 dataframes, one of strategy weights, and one of asset prices.
 
 Suport is also provided for optimising the weights using a trade buffer heuristic.
 
