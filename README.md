@@ -1,0 +1,2 @@
+# alphavec
+Fast minimalist backtesting
