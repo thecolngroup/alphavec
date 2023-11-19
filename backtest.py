@@ -5,6 +5,7 @@ import pandas as pd
 
 TRADING_DAYS_YEAR = 252
 
+
 def zero_commission(weights: pd.DataFrame, prices: pd.DataFrame) -> float:
     """
     Zero commission will always return 0.
@@ -30,42 +31,68 @@ def backtest(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Backtests a trading strategy based on provided weights, prices, and cost parameters.
-    By default calculates no commission, no borrowing, and no spread.
-    By default assumes weights and strategy prices are at day interval. If you want to use a different interval,
-    you must pass in the appropriate freq_day value. 
+    Zero costs are calculated by default: no commission, no borrowing, and no spread.
+
+    Daily interval data is assumed by default.
+    If you want to use a different interval, you must pass in the appropriate freq_day value.
     E.G. if you are using hourly data in a 24-hour market such as crypto, you should pass in 24.
-    Performance is reported on a per-asset basis and also as a combined portfolio.
-    Annualised metrics always assume a 252 day trading year.
-    
-    Note: the portfolio report equal-weights all of the assets (1 / number of assets).
+
+    Performance is reported both asset-wise and as a portfolio.
+    A baseline zero-cost buy-and-hold comparison is provided for each asset and the portfolio.
+    Note: the comparative baseline portfolio is formed using equal-weights of the baseline asset returns
+    i.e. 1 / number of assets.
+    Annualised metrics always use a 252 day trading year.
 
     Parameters:
-    strategy_weights (pd.DataFrame): The weights (-1 to 1) of the assets in the strategy at each interval.
-    Shape must match that of mark_prices.
-    mark_prices (pd.DataFrame): The mark prices of the assets at each interval.
-    Shape must match that of strategy_weights.
-    leverage (float, optional): The leverage used in the strategy. Defaults to 1.
-    freq_day (int, optional): The number of strategy intervals in a trading day. Defaults to TRADING_DAYS_YEAR.
-    commission_func (Callable[[pd.DataFrame, pd.DataFrame], float], optional): A function that calculates the commission. Defaults to zero_commission.
-    ann_borrow_pct (float, optional): The annual borrowing percentage applied when leverage > 1. Defaults to 0.
-    spread_pct (float, optional): The spread percentage. Defaults to 0.
+
+    strategy_weights (pd.DataFrame): Weights (-1 to 1) of the assets in the strategy at each interval.
+    Each column should be the weights for a specific asset, with the column name being the asset name.
+    Column names should match strategy_weights.
+    Index should be a DatetimeIndex.
+    Shape must match mark_prices.
+
+    mark_prices (pd.DataFrame): Mark prices used to calculate returns of the assets at each interval.
+    The mark price should be the realistic price at which the asset can be traded at the given interval.
+    Each column should be the mark prices for a specific asset, with the column name being the asset name.
+    Column names should match strategy_weights.
+    Index should be a DatetimeIndex.
+    Shape must match strategy_weights.
+
+    leverage (float, optional): Leverage used in the strategy. Defaults to 1.
+
+    freq_day (int, optional): Number of strategy intervals in a trading day. Defaults to 1.
+
+    commission_func (Callable[[pd.DataFrame, pd.DataFrame], float], optional): Function to calculate commission cost. Defaults to zero_commission.
+
+    ann_borrow_pct (float, optional): Annual borrowing cost percentage applied when leverage > 1. Defaults to 0.
+
+    spread_pct (float, optional): Spread cost percentage. Defaults to 0.
 
     Returns:
-    tuple: A tuple containing five DataFrames for :
-        - strat_perf: Asset-wise performance of the strategy.
-        - strat_perf_cum: Asset-wise equity curve of the strategy.
-        - strat_perf_roll_sr: Asset-wise rolling annual Sharpe ratio of the strategy.
-        - strat_port_perf: Performance of the portfolio.
-        - strat_port_cum: Equity curve of the portfolio.
+
+    tuple: A tuple containing five DataFrames that report backtest performance for the strategy and baseline:
+        - perf: Asset-wise performance.
+        - perf_cum: Asset-wise equity curve.
+        - perf_roll_sr: Asset-wise rolling annual Sharpe ratio.
+        - port_perf: Portfolio performance.
+        - port_cum: Portoflio equity curve.
     """
 
-    assert strategy_weights.shape == mark_prices.shape, "Weights and prices must have the same shape"
+    assert (
+        strategy_weights.shape == mark_prices.shape
+    ), "Weights and prices must have the same shape"
+    assert (
+        strategy_weights.columns == mark_prices.columns
+    ), "Weights and prices must have the same column names"
 
     # Calc the number of data intervals in a trading year for annualised metrics
     freq_year = freq_day * TRADING_DAYS_YEAR
 
     # Backtest a baseline buy and hold scenario for each asset so that we can assess
     # the relative performance of the strategy
+
+    # IMPORTANT: mark_prices should be shifted by 1 interval or more
+    # before before calling backtest to avoid look-ahead bias
     asset_rets = mark_prices.pct_change()
     asset_cum = (1 + asset_rets).cumprod() - 1
     asset_perf = pd.concat(
@@ -94,14 +121,14 @@ def backtest(
 
     # Backtest a cost-aware strategy as defined by the given weights.
     # 1. Calc costs
-    # 2. Evaluate strategy performance per-asset
+    # 2. Evaluate asset-wise performance
     # 3. Evalute portfolio performance
 
     # Adjust the weights for leverage
     strategy_weights *= leverage
 
-    # Calc the number of valid trading periods for each asset
-    # this supports certain performance calcs over a ragged series of prices with older and newer assets
+    # Calc the number of valid trading periods for each asset in order to support performance calcs
+    # over a ragged time series with older and newer assets
     strat_start_index = strategy_weights.apply(
         lambda col: col.loc[col.first_valid_index() :].count()
     )
@@ -117,7 +144,7 @@ def backtest(
     costs = cmn_costs + borrow_costs + spread_costs
 
     # Evaluate the cost-aware strategy returns and key performance metrics
-    strat_rets = strategy_weights.shift(1) * (asset_rets - costs)
+    strat_rets = strategy_weights * (asset_rets - costs)
     strat_cum = (1 + strat_rets).cumprod() - 1
     profit_cost_ratio = strat_cum.iloc[-1] / costs.sum()
     strat_perf = pd.concat(
@@ -132,12 +159,10 @@ def backtest(
         axis=1,
     )
 
-    # Combine the baseline and strategy per-asset performance metrics into a single dataframe for comparison
-    strat_perf = pd.concat([asset_perf, strat_perf], keys=["baseline", "strat"], axis=1)
-    strat_perf_cum = pd.concat(
-        [asset_cum, strat_cum], keys=["baseline", "strat"], axis=1
-    )
-    strat_perf_roll_sr = pd.concat(
+    # Combine the baseline and strategy asset-wise performance metrics into a single dataframe for comparison
+    perf = pd.concat([asset_perf, strat_perf], keys=["baseline", "strat"], axis=1)
+    perf_cum = pd.concat([asset_cum, strat_cum], keys=["baseline", "strat"], axis=1)
+    perf_roll_sr = pd.concat(
         [
             roll_sharpe(asset_rets, window=freq_day, periods=freq_year),
             roll_sharpe(strat_rets, window=freq_day, periods=freq_year),
@@ -147,34 +172,38 @@ def backtest(
     )
 
     # Evaluate the strategy portfolio performance
-    strat_port_rets = strat_rets.mul(asset_port_weights).sum(axis=1)
-    strat_port_cum = strat_cum.mul(asset_port_weights).sum(axis=1)
+    strat_port_rets = strat_rets.sum(axis=1)
+    strat_port_cum = strat_cum.sum(axis=1)
     strat_port_perf = pd.DataFrame(
         {
             "sr": ann_sharpe(strat_port_rets, periods=freq_year),
             "vol": ann_vol(strat_port_rets, periods=freq_year),
             "cagr": cagr(strat_port_rets, periods=freq_year),
-            "profit_cost_ratio": profit_cost_ratio.mul(asset_port_weights).sum().sum(),
+            "profit_cost_ratio": profit_cost_ratio.sum().sum(),
         },
         index=["strat"],
     )
 
     # Combine the baseline and strategy portfolio performance metrics into a single dataframe for comparison
-    strat_port_perf = pd.concat([baseline_port_perf, strat_port_perf], axis=0)
-    strat_port_cum = pd.concat(
+    port_perf = pd.concat([baseline_port_perf, strat_port_perf], axis=0)
+    port_cum = pd.concat(
         [baseline_port_cum, strat_port_cum], keys=["baseline", "strat"], axis=1
     )
 
     return (
-        strat_perf,
-        strat_perf_cum,
-        strat_perf_roll_sr,
-        strat_port_perf,
-        strat_port_cum,
+        perf,
+        perf_cum,
+        perf_roll_sr,
+        port_perf,
+        port_cum,
     )
 
 
-def ann_sharpe(returns:pd.DataFrame | pd.Series, risk_free_rate:float=0, periods:int=TRADING_DAYS_YEAR):
+def ann_sharpe(
+    returns: pd.DataFrame | pd.Series,
+    risk_free_rate: float = 0,
+    periods: int = TRADING_DAYS_YEAR,
+):
     mu = returns.mean()
     sigma = returns.std()
     sr = (mu - risk_free_rate) / sigma
