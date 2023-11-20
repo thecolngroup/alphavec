@@ -50,8 +50,9 @@ def backtest(
     Index should be a DatetimeIndex.
     Shape must match mark_prices.
 
-    mark_prices (pd.DataFrame): Mark prices used to calculate returns of the assets at each interval.
-    The mark price should be the realistic price at which the asset can be traded at each given interval.
+    mark_prices (pd.DataFrame):
+    Mark prices used to calculate returns of the assets at each interval.
+    The mark price should be the realistic price at which the asset can be traded each interval.
     Each column should be the mark prices for a specific asset, with the column name being the asset name.
     Column names should match strategy_weights.
     Index should be a DatetimeIndex.
@@ -59,16 +60,19 @@ def backtest(
 
     leverage (float, optional): Leverage used in the strategy. Defaults to 1.
 
-    freq_day (int, optional): Number of strategy intervals in a trading day. Defaults to 1.
+    freq_day (int, optional):
+    Number of strategy intervals in a trading day. Defaults to 1.
 
-    commission_func (Callable[[pd.DataFrame, pd.DataFrame], float], optional): Function to calculate commission cost. Defaults to zero_commission.
+    commission_func (Callable[[pd.DataFrame, pd.DataFrame], float], optional):
+    Function to calculate commission cost. Defaults to zero_commission.
 
-    ann_borrow_pct (float, optional): Annual borrowing cost percentage applied when leverage > 1. Defaults to 0.
+    ann_borrow_pct (float, optional):
+    Annual borrowing cost percentage applied when leverage > 1. Defaults to 0.
 
     spread_pct (float, optional): Spread cost percentage. Defaults to 0.
 
     Returns:
-    tuple: A tuple containing five DataFrames that report backtest performance for the strategy and baseline:
+    tuple: A tuple containing five DataFrames that report backtest performance:
         - perf: Asset-wise performance.
         - perf_cum: Asset-wise equity curve.
         - perf_roll_sr: Asset-wise rolling annual Sharpe ratio.
@@ -88,7 +92,7 @@ def backtest(
 
     # Backtest a baseline buy and hold scenario for each asset so that we can assess
     # the relative performance of the strategy
-    # Use pct returns rather than log returns since all costs are in percentage terms too
+    # Use pct returns rather than log returns since all costs are in pct terms too
     asset_rets = mark_prices.pct_change()
     asset_cum = (1 + asset_rets).cumprod() - 1
     asset_perf = pd.concat(
@@ -123,14 +127,16 @@ def backtest(
     # Adjust the weights for leverage
     strategy_weights *= leverage
 
-    # Calc the number of valid trading periods for each asset in order to support performance calcs
-    # over a ragged time series with older and newer assets
+    # Calc the number of valid trading periods for each asset
+    # in order to support performance calcs over a ragged time series
+    #  with older and newer assets
     strat_valid_periods = strategy_weights.apply(
         lambda col: col.loc[col.first_valid_index() :].count()
     )
     strat_days = strat_valid_periods / freq_day
 
-    # Calc each cost component in percentage terms so we can deduct them from the strategy returns
+    # Calc each cost component in percentage terms so we can
+    # deduct them from the strategy returns
     cmn_costs = commission_func(strategy_weights, mark_prices) / mark_prices
     borrow_costs = (
         borrow(strategy_weights, mark_prices, (ann_borrow_pct / freq_year), leverage)
@@ -156,7 +162,8 @@ def backtest(
         axis=1,
     )
 
-    # Combine the baseline and strategy asset-wise performance metrics into a single dataframe for comparison
+    # Combine the baseline and strategy asset-wise performance metrics
+    # into a single dataframe for comparison
     perf = pd.concat([asset_perf, strat_perf], keys=["baseline", "strat"], axis=1)
     perf_cum = pd.concat([asset_cum, strat_cum], keys=["baseline", "strat"], axis=1)
     perf_roll_sr = pd.concat(
@@ -181,7 +188,8 @@ def backtest(
         index=["strat"],
     )
 
-    # Combine the baseline and strategy portfolio performance metrics into a single dataframe for comparison
+    # Combine the baseline and strategy portfolio performance metrics
+    # into a single dataframe for comparison
     port_perf = pd.concat([baseline_port_perf, strat_port_perf], axis=0)
     port_cum = pd.concat(
         [baseline_port_cum, strat_port_cum], keys=["baseline", "strat"], axis=1
