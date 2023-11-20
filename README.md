@@ -33,3 +33,9 @@ For quick validation of ideas all you realy need is Pandas and...
 The goal was to add just enough extra complexity to this basic building block of vectorized backtesting in order to support sound development of systematic trading strategies.
 
 Alphavec adds support for various cost components, performance reporting and baseline comparisons.
+
+## Install
+
+``` pip install git+https://github.com/thecolngroup/alphavec ```
+
+
