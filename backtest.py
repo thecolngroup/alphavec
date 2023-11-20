@@ -7,15 +7,14 @@ TRADING_DAYS_YEAR = 252
 
 
 def zero_commission(weights: pd.DataFrame, prices: pd.DataFrame) -> float:
-    """
-    Zero commission will always return 0.
+    """Zero trading commission.
 
-    Parameters:
-    weights (pd.DataFrame): The weights of the assets in the portfolio.
-    prices (pd.DataFrame): The prices of the assets in the portfolio.
+    Args:
+        weights: The weights of the assets in the portfolio.
+        prices: The prices of the assets in the portfolio.
 
     Returns:
-    float: Commission cost is 0.
+        Always returns 0.
     """
     return 0
 
@@ -29,9 +28,10 @@ def backtest(
     ann_borrow_pct: float = 0,
     spread_pct: float = 0,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """
-    Backtests a trading strategy based on provided weights, prices, and cost parameters.
-    Zero costs are calculated by default: no borrowing, and no spread.
+    """Backtests a trading strategy.
+
+    Strategy is simulated using the give weights, prices, and cost parameters.
+    Zero costs are calculated by default: no commission, borrowing, and no spread.
 
     Daily interval data is assumed by default.
     If you want to use a different interval, you must pass in the appropriate freq_day value
@@ -43,41 +43,33 @@ def backtest(
     i.e. 1 / number of assets.
     Annualised metrics always use a 252 day trading year.
 
-    Parameters:
-    strategy_weights (pd.DataFrame): Weights (-1 to 1) of the assets in the strategy at each interval.
-    Each column should be the weights for a specific asset, with the column name being the asset name.
-    Column names should match strategy_weights.
-    Index should be a DatetimeIndex.
-    Shape must match mark_prices.
-
-    mark_prices (pd.DataFrame):
-    Mark prices used to calculate returns of the assets at each interval.
-    The mark price should be the realistic price at which the asset can be traded each interval.
-    Each column should be the mark prices for a specific asset, with the column name being the asset name.
-    Column names should match strategy_weights.
-    Index should be a DatetimeIndex.
-    Shape must match strategy_weights.
-
-    leverage (float, optional): Leverage used in the strategy. Defaults to 1.
-
-    freq_day (int, optional):
-    Number of strategy intervals in a trading day. Defaults to 1.
-
-    commission_func (Callable[[pd.DataFrame, pd.DataFrame], float], optional):
-    Function to calculate commission cost. Defaults to zero_commission.
-
-    ann_borrow_pct (float, optional):
-    Annual borrowing cost percentage applied when leverage > 1. Defaults to 0.
-
-    spread_pct (float, optional): Spread cost percentage. Defaults to 0.
+    Args:
+        strategy_weights:
+            Weights (-1 to 1) of the assets in the strategy at each interval.
+            Each column should be the weights for a specific asset, with the column name being the asset name.
+            Column names should match strategy_weights.
+            Index should be a DatetimeIndex.
+            Shape must match mark_prices.
+        mark_prices:
+            Mark prices used to calculate returns of the assets at each interval.
+            The mark price should be the realistic price at which the asset can be traded each interval.
+            Each column should be the mark prices for a specific asset, with the column name being the asset name.
+            Column names should match strategy_weights.
+            Index should be a DatetimeIndex.
+            Shape must match strategy_weights.
+        leverage: Leverage used in the strategy. Defaults to 1.
+        freq_day: Number of strategy intervals in a trading day. Defaults to 1.
+        commission_func: Function to calculate commission cost. Defaults to zero_commission.
+        ann_borrow_pct: Annual borrowing cost percentage applied when leverage > 1. Defaults to 0.
+        spread_pct: Spread cost percentage. Defaults to 0.
 
     Returns:
-    tuple: A tuple containing five DataFrames that report backtest performance:
-        - perf: Asset-wise performance.
-        - perf_cum: Asset-wise equity curve.
-        - perf_roll_sr: Asset-wise rolling annual Sharpe ratio.
-        - port_perf: Portfolio performance.
-        - port_cum: Portoflio equity curve.
+        A tuple containing five DataFrames that report backtest performance:
+            1. Asset-wise performance.
+            2. Asset-wise equity curve.
+            3. Asset-wise rolling annual Sharpe ratio.
+            4. Portfolio performance.
+            5. Portoflio equity curve.
     """
 
     assert (
