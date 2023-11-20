@@ -31,11 +31,11 @@ def backtest(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """
     Backtests a trading strategy based on provided weights, prices, and cost parameters.
-    Zero costs are calculated by default: no commission, no borrowing, and no spread.
+    Zero costs are calculated by default: no borrowing, and no spread.
 
     Daily interval data is assumed by default.
-    If you want to use a different interval, you must pass in the appropriate freq_day value.
-    E.G. if you are using hourly data in a 24-hour market such as crypto, you should pass in 24.
+    If you want to use a different interval, you must pass in the appropriate freq_day value
+    e.g. if you are using hourly data in a 24-hour market such as crypto, you should pass in 24.
 
     Performance is reported both asset-wise and as a portfolio.
     A baseline zero-cost buy-and-hold comparison is provided for each asset and the portfolio.
@@ -44,7 +44,6 @@ def backtest(
     Annualised metrics always use a 252 day trading year.
 
     Parameters:
-
     strategy_weights (pd.DataFrame): Weights (-1 to 1) of the assets in the strategy at each interval.
     Each column should be the weights for a specific asset, with the column name being the asset name.
     Column names should match strategy_weights.
@@ -52,7 +51,7 @@ def backtest(
     Shape must match mark_prices.
 
     mark_prices (pd.DataFrame): Mark prices used to calculate returns of the assets at each interval.
-    The mark price should be the realistic price at which the asset can be traded at the given interval.
+    The mark price should be the realistic price at which the asset can be traded at each given interval.
     Each column should be the mark prices for a specific asset, with the column name being the asset name.
     Column names should match strategy_weights.
     Index should be a DatetimeIndex.
@@ -69,7 +68,6 @@ def backtest(
     spread_pct (float, optional): Spread cost percentage. Defaults to 0.
 
     Returns:
-
     tuple: A tuple containing five DataFrames that report backtest performance for the strategy and baseline:
         - perf: Asset-wise performance.
         - perf_cum: Asset-wise equity curve.
@@ -90,9 +88,7 @@ def backtest(
 
     # Backtest a baseline buy and hold scenario for each asset so that we can assess
     # the relative performance of the strategy
-
-    # IMPORTANT: mark_prices should be shifted by 1 interval or more
-    # before before calling backtest to avoid look-ahead bias
+    # Use pct returns rather than log returns since all costs are in percentage terms too
     asset_rets = mark_prices.pct_change()
     asset_cum = (1 + asset_rets).cumprod() - 1
     asset_perf = pd.concat(
@@ -101,7 +97,7 @@ def backtest(
             asset_rets.apply(ann_vol, periods=freq_year),
             asset_rets.apply(cagr, periods=freq_year),
         ],
-        keys=["sr", "vol", "cagr"],
+        keys=["sharpe", "volatility", "cagr"],
         axis=1,
     )
 
@@ -111,8 +107,8 @@ def backtest(
     baseline_port_cum = asset_cum.mul(asset_port_weights).sum(axis=1)
     baseline_port_perf = pd.DataFrame(
         {
-            "sr": ann_sharpe(baseline_port_rets, periods=freq_year),
-            "vol": ann_vol(baseline_port_rets, periods=freq_year),
+            "sharpe": ann_sharpe(baseline_port_rets, periods=freq_year),
+            "volatility": ann_vol(baseline_port_rets, periods=freq_year),
             "cagr": cagr(baseline_port_rets, periods=freq_year),
             "profit_cost_ratio": np.NAN,
         },
@@ -129,10 +125,10 @@ def backtest(
 
     # Calc the number of valid trading periods for each asset in order to support performance calcs
     # over a ragged time series with older and newer assets
-    strat_start_index = strategy_weights.apply(
+    strat_valid_periods = strategy_weights.apply(
         lambda col: col.loc[col.first_valid_index() :].count()
     )
-    strat_years = strat_start_index / freq_year
+    strat_days = strat_valid_periods / freq_day
 
     # Calc each cost component in percentage terms so we can deduct them from the strategy returns
     cmn_costs = commission_func(strategy_weights, mark_prices) / mark_prices
@@ -144,7 +140,8 @@ def backtest(
     costs = cmn_costs + borrow_costs + spread_costs
 
     # Evaluate the cost-aware strategy returns and key performance metrics
-    strat_rets = strategy_weights * (asset_rets - costs)
+    # Shift the strategy weights by 1 period to prevent look-ahead bias
+    strat_rets = strategy_weights.shift(1) * (asset_rets - costs)
     strat_cum = (1 + strat_rets).cumprod() - 1
     profit_cost_ratio = strat_cum.iloc[-1] / costs.sum()
     strat_perf = pd.concat(
@@ -152,10 +149,10 @@ def backtest(
             strat_rets.apply(ann_sharpe, periods=freq_year),
             strat_rets.apply(ann_vol, periods=freq_year),
             strat_rets.apply(cagr, periods=freq_year),
-            trade_count(strategy_weights) / strat_years,
+            trade_count(strategy_weights) / strat_days,
             profit_cost_ratio,
         ],
-        keys=["sr", "vol", "cagr", "trades_pa", "profit_cost_ratio"],
+        keys=["sharpe", "volatility", "cagr", "trades_per_day", "profit_cost_ratio"],
         axis=1,
     )
 
@@ -176,8 +173,8 @@ def backtest(
     strat_port_cum = strat_cum.sum(axis=1)
     strat_port_perf = pd.DataFrame(
         {
-            "sr": ann_sharpe(strat_port_rets, periods=freq_year),
-            "vol": ann_vol(strat_port_rets, periods=freq_year),
+            "sharpe": ann_sharpe(strat_port_rets, periods=freq_year),
+            "volatility": ann_vol(strat_port_rets, periods=freq_year),
             "cagr": cagr(strat_port_rets, periods=freq_year),
             "profit_cost_ratio": profit_cost_ratio.sum().sum(),
         },
