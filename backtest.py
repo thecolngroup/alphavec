@@ -73,7 +73,7 @@ def backtest(
         strategy_weights.shape == mark_prices.shape
     ), "Weights and prices must have the same shape"
     assert (
-        strategy_weights.columns == mark_prices.columns
+        strategy_weights.columns.tolist() == mark_prices.columns.tolist()
     ), "Weights and prices must have the same column names"
 
     # Calc the number of data intervals in a trading year for annualised metrics
@@ -93,7 +93,6 @@ def backtest(
         keys=["sharpe", "volatility", "cagr"],
         axis=1,
     )
-
     # Backtest a cost-aware strategy as defined by the given weights.
     # 1. Calc costs
     # 2. Evaluate asset-wise performance
