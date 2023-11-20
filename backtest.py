@@ -10,13 +10,47 @@ def zero_commission(weights: pd.DataFrame, prices: pd.DataFrame) -> float:
     """Zero trading commission.
 
     Args:
-        weights: The weights of the assets in the portfolio.
-        prices: The prices of the assets in the portfolio.
+        weights: Weights of the assets in the portfolio.
+        prices: Prices of the assets in the portfolio.
 
     Returns:
         Always returns 0.
     """
     return 0
+
+
+def flat_commission(weights: pd.DataFrame, prices: pd.DataFrame, fee: float) -> float:
+    """Flat commission applies a fixed fee per trade.
+
+    Args:
+        weights: Weights of the assets in the portfolio.
+        prices: Prices of the assets in the portfolio.
+        fee: Fixed fee per trade.
+
+    Returns:
+        Always returns fee.
+    """
+    diff = weights.abs().diff().fillna(0) != 0
+    tx = diff.astype(int)
+    commissions = tx * fee
+    return commissions.fillna(0)
+
+
+def pct_commission(weights: pd.DataFrame, prices: pd.DataFrame, fee: float) -> float:
+    """Percentage commission applies a percentage fee per trade.
+
+    Args:
+        weights: Weights of the assets in the portfolio.
+        prices: Prices of the assets in the portfolio.
+        fee: Percentage fee per trade.
+
+    Returns:
+        Returns a percentage of the total value of the trade.
+    """
+    size = weights.abs().diff().fillna(0)
+    value = size * prices
+    commissions = value * fee
+    return commissions.fillna(0)
 
 
 def backtest(
@@ -86,9 +120,9 @@ def backtest(
     asset_cum = (1 + asset_rets).cumprod() - 1
     asset_perf = pd.concat(
         [
-            asset_rets.apply(ann_sharpe, periods=freq_year),
-            asset_rets.apply(ann_vol, periods=freq_year),
-            asset_rets.apply(cagr, periods=freq_year),
+            asset_rets.apply(_sharpe, periods=freq_year),
+            asset_rets.apply(_ann_vol, periods=freq_year),
+            asset_rets.apply(_cagr, periods=freq_year),
         ],
         keys=["sharpe", "volatility", "cagr"],
         axis=1,
@@ -113,10 +147,10 @@ def backtest(
     # deduct them from the strategy returns
     cmn_costs = commission_func(strategy_weights, mark_prices) / mark_prices
     borrow_costs = (
-        borrow(strategy_weights, mark_prices, (ann_borrow_pct / freq_year), leverage)
+        _borrow(strategy_weights, mark_prices, (ann_borrow_pct / freq_year), leverage)
         / mark_prices
     )
-    spread_costs = spread(strategy_weights, mark_prices, spread_pct) / mark_prices
+    spread_costs = _spread(strategy_weights, mark_prices, spread_pct) / mark_prices
     costs = cmn_costs + borrow_costs + spread_costs
 
     # Evaluate the cost-aware strategy returns and key performance metrics
@@ -126,10 +160,10 @@ def backtest(
     profit_cost_ratio = strat_cum.iloc[-1] / costs.sum()
     strat_perf = pd.concat(
         [
-            strat_rets.apply(ann_sharpe, periods=freq_year),
-            strat_rets.apply(ann_vol, periods=freq_year),
-            strat_rets.apply(cagr, periods=freq_year),
-            trade_count(strategy_weights) / strat_days,
+            strat_rets.apply(_sharpe, periods=freq_year),
+            strat_rets.apply(_ann_vol, periods=freq_year),
+            strat_rets.apply(_cagr, periods=freq_year),
+            _trade_count(strategy_weights) / strat_days,
             profit_cost_ratio,
         ],
         keys=["sharpe", "volatility", "cagr", "trades_per_day", "profit_cost_ratio"],
@@ -142,8 +176,8 @@ def backtest(
     perf_cum = pd.concat([asset_cum, strat_cum], keys=["asset", "strategy"], axis=1)
     perf_roll_sr = pd.concat(
         [
-            roll_sharpe(asset_rets, window=freq_day, periods=freq_year),
-            roll_sharpe(strat_rets, window=freq_day, periods=freq_year),
+            _roll_sharpe(asset_rets, window=freq_day, periods=freq_year),
+            _roll_sharpe(strat_rets, window=freq_day, periods=freq_year),
         ],
         keys=["asset", "strategy"],
         axis=1,
@@ -154,9 +188,9 @@ def backtest(
     strat_port_cum = strat_cum.sum(axis=1)
     strat_port_perf = pd.DataFrame(
         {
-            "sharpe": ann_sharpe(strat_port_rets, periods=freq_year),
-            "volatility": ann_vol(strat_port_rets, periods=freq_year),
-            "cagr": cagr(strat_port_rets, periods=freq_year),
+            "sharpe": _sharpe(strat_port_rets, periods=freq_year),
+            "volatility": _ann_vol(strat_port_rets, periods=freq_year),
+            "cagr": _cagr(strat_port_rets, periods=freq_year),
             "profit_cost_ratio": profit_cost_ratio.sum().sum(),
         },
         index=["strategy"],
@@ -171,25 +205,32 @@ def backtest(
     )
 
 
-def ann_sharpe(
-    returns: pd.DataFrame | pd.Series,
+def _sharpe(
+    rets: pd.DataFrame | pd.Series,
     risk_free_rate: float = 0,
     periods: int = TRADING_DAYS_YEAR,
-):
-    mu = returns.mean()
-    sigma = returns.std()
+) -> float:
+    mu = rets.mean()
+    sigma = rets.std()
     sr = (mu - risk_free_rate) / sigma
     return sr * np.sqrt(periods)
 
 
-def roll_sharpe(rets, rf=0, window=TRADING_DAYS_YEAR, periods=TRADING_DAYS_YEAR):
+def _roll_sharpe(
+    rets: pd.DataFrame | pd.Series,
+    risk_free_rate: float = 0,
+    window: int = TRADING_DAYS_YEAR,
+    periods: int = TRADING_DAYS_YEAR,
+) -> pd.DataFrame | pd.Series:
     mu = rets.rolling(window).mean()
     sigma = rets.rolling(window).std()
-    sr = (mu - rf) / sigma
+    sr = (mu - risk_free_rate) / sigma
     return sr * np.sqrt(periods)
 
 
-def cagr(rets, periods=TRADING_DAYS_YEAR):
+def _cagr(
+    rets: pd.DataFrame | pd.Series, periods: int = TRADING_DAYS_YEAR
+) -> pd.DataFrame | pd.Series:
     cumprod = (1 + rets).cumprod().dropna()
     if len(cumprod) == 0:
         return 0
@@ -204,39 +245,36 @@ def cagr(rets, periods=TRADING_DAYS_YEAR):
     return cagr
 
 
-def ann_vol(rets, periods=TRADING_DAYS_YEAR):
+def _ann_vol(
+    rets: pd.DataFrame | pd.Series, periods: int = TRADING_DAYS_YEAR
+) -> pd.DataFrame | pd.Series:
     return rets.std() * np.sqrt(periods)
 
 
-def trade_count(weights):
+def _trade_count(weights: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
     diff = weights.abs().diff().fillna(0) != 0
     tx = diff.astype(int)
     return tx.sum()
 
 
-def spread(weights, prices, spread_pct):
+def _spread(
+    weights: pd.DataFrame | pd.Series,
+    prices: pd.DataFrame | pd.Series,
+    spread_pct: float = 0,
+) -> pd.DataFrame | pd.Series:
     diff = weights.abs().diff().fillna(0) != 0
     tx = diff.astype(int)
     costs = tx * (spread_pct * 0.5) * prices
     return costs.fillna(0)
 
 
-def borrow(weights, prices, borrow_pct, lev: float = 1):
+def _borrow(
+    weights: pd.DataFrame | pd.Series,
+    prices: pd.DataFrame | pd.Series,
+    borrow_pct: float = 0,
+    lev: float = 1,
+) -> pd.DataFrame | pd.Series:
     size = weights.abs().fillna(0)
     value = size * prices
     costs = value * borrow_pct * (lev - 1)
     return costs.fillna(0)
-
-
-def flat_commission(weights, prices, fee):
-    diff = weights.abs().diff().fillna(0) != 0
-    tx = diff.astype(int)
-    commissions = tx * fee
-    return commissions.fillna(0)
-
-
-def pct_commission(weights, prices, fee):
-    size = weights.abs().diff().fillna(0)
-    value = size * prices
-    commissions = value * fee
-    return commissions.fillna(0)

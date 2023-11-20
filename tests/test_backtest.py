@@ -6,7 +6,7 @@ from functools import partial
 import numpy as np
 import pandas as pd
 
-from backtest import backtest, pct_commission
+from backtest import backtest, _pct_commission
 
 workspace_root = str(PurePath(os.getcwd()))
 sys.path.append(workspace_root)
@@ -45,7 +45,7 @@ def test_backtest():
         marks,
         leverage=2,
         freq_day=1,
-        commission_func=partial(pct_commission, fee=0.001),
+        commission_func=partial(_pct_commission, fee=0.001),
         ann_borrow_pct=0.05,
         spread_pct=0.001,
     )
