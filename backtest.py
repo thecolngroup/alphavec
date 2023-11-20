@@ -27,7 +27,7 @@ def backtest(
     commission_func: Callable[[pd.DataFrame, pd.DataFrame], float] = zero_commission,
     ann_borrow_pct: float = 0,
     spread_pct: float = 0,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series]:
     """Backtests a trading strategy.
 
     Strategy is simulated using the give weights, prices, and cost parameters.
@@ -38,9 +38,6 @@ def backtest(
     e.g. if you are using hourly data in a 24-hour market such as crypto, you should pass in 24.
 
     Performance is reported both asset-wise and as a portfolio.
-    A baseline zero-cost buy-and-hold comparison is provided for each asset and the portfolio.
-    Note: the comparative baseline portfolio is formed using equal-weights of the baseline asset returns
-    i.e. 1 / number of assets.
     Annualised metrics always use a 252 day trading year.
 
     Args:
@@ -97,20 +94,6 @@ def backtest(
         axis=1,
     )
 
-    # Evaluate the baseline portfolio performance using a naive equal-weighted approach
-    asset_port_weights = 1 / len(strategy_weights.columns)
-    baseline_port_rets = asset_rets.mul(asset_port_weights).sum(axis=1)
-    baseline_port_cum = asset_cum.mul(asset_port_weights).sum(axis=1)
-    baseline_port_perf = pd.DataFrame(
-        {
-            "sharpe": ann_sharpe(baseline_port_rets, periods=freq_year),
-            "volatility": ann_vol(baseline_port_rets, periods=freq_year),
-            "cagr": cagr(baseline_port_rets, periods=freq_year),
-            "profit_cost_ratio": np.NAN,
-        },
-        index=["baseline"],
-    )
-
     # Backtest a cost-aware strategy as defined by the given weights.
     # 1. Calc costs
     # 2. Evaluate asset-wise performance
@@ -156,14 +139,14 @@ def backtest(
 
     # Combine the baseline and strategy asset-wise performance metrics
     # into a single dataframe for comparison
-    perf = pd.concat([asset_perf, strat_perf], keys=["baseline", "strat"], axis=1)
-    perf_cum = pd.concat([asset_cum, strat_cum], keys=["baseline", "strat"], axis=1)
+    perf = pd.concat([asset_perf, strat_perf], keys=["asset", "strategy"], axis=1)
+    perf_cum = pd.concat([asset_cum, strat_cum], keys=["asset", "strategy"], axis=1)
     perf_roll_sr = pd.concat(
         [
             roll_sharpe(asset_rets, window=freq_day, periods=freq_year),
             roll_sharpe(strat_rets, window=freq_day, periods=freq_year),
         ],
-        keys=["baseline", "strat"],
+        keys=["asset", "strategy"],
         axis=1,
     )
 
@@ -177,22 +160,15 @@ def backtest(
             "cagr": cagr(strat_port_rets, periods=freq_year),
             "profit_cost_ratio": profit_cost_ratio.sum().sum(),
         },
-        index=["strat"],
-    )
-
-    # Combine the baseline and strategy portfolio performance metrics
-    # into a single dataframe for comparison
-    port_perf = pd.concat([baseline_port_perf, strat_port_perf], axis=0)
-    port_cum = pd.concat(
-        [baseline_port_cum, strat_port_cum], keys=["baseline", "strat"], axis=1
+        index=["strategy"],
     )
 
     return (
         perf,
         perf_cum,
         perf_roll_sr,
-        port_perf,
-        port_cum,
+        strat_port_perf,
+        strat_port_cum,
     )
 
 
