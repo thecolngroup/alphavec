@@ -136,7 +136,7 @@ def backtest(
         borrow(strategy_weights, mark_prices, (ann_borrow_pct / freq_year), leverage)
         / mark_prices
     )
-    spread_costs = spread(strategy_weights, spread_pct)
+    spread_costs = spread(strategy_weights, mark_prices, spread_pct) / mark_prices
     costs = cmn_costs + borrow_costs + spread_costs
 
     # Evaluate the cost-aware strategy returns and key performance metrics
@@ -239,10 +239,10 @@ def trade_count(weights):
     return tx.sum()
 
 
-def spread(weights, spread_pct):
+def spread(weights, prices, spread_pct):
     diff = weights.abs().diff().fillna(0) != 0
     tx = diff.astype(int)
-    costs = tx * (spread_pct * 0.5)
+    costs = tx * (spread_pct * 0.5) * prices
     return costs.fillna(0)
 
 
