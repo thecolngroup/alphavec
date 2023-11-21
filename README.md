@@ -32,4 +32,6 @@ The goal was to add just enough extra complexity to this basic building block in
 
 ``` pip install git+https://github.com/thecolngroup/alphavec ```
 
+## Usage
 
+See the notebook ```example.ipynb``` for a walkthrough of designing and testing a strategy using Alphavec.
