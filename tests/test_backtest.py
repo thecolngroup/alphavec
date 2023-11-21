@@ -33,16 +33,20 @@ def test_backtest():
     market = market[~market.index.duplicated()]
     market = market.unstack(level=0).sort_index(axis=1).stack()
 
-    marks = pd.DataFrame(
+    mark_prices = pd.DataFrame(
         market.loc[:, ["c"]].unstack(level=1).droplevel(level=0, axis=1)
     )
 
-    weights = marks.copy()
+    weights = mark_prices.copy()
     weights[:] = 1
+
+    weights = weights["2019-01-01":]
+    mark_prices = mark_prices.mask(weights.isna())
+    mark_prices, weights = mark_prices.align(weights, join="inner")
 
     perf, perf_cum, perf_sr, port_perf, port_cum = backtest(
         weights,
-        marks,
+        mark_prices,
         leverage=2,
         freq_day=1,
         commission_func=partial(pct_commission, fee=0.001),
@@ -50,4 +54,4 @@ def test_backtest():
         spread_pct=0.001,
     )
 
-    assert perf.loc["BTCUSDT", ("asset", "sharpe")].round(2) == 0.75
+    assert perf.loc["BTCUSDT", ("asset", "sharpe")].round(2) == 0.86
