@@ -176,8 +176,8 @@ def backtest(
     perf_cum = pd.concat([asset_cum, strat_cum], keys=["asset", "strategy"], axis=1)
     perf_roll_sr = pd.concat(
         [
-            _roll_sharpe(asset_rets, window=freq_day, periods=freq_year),
-            _roll_sharpe(strat_rets, window=freq_day, periods=freq_year),
+            _roll_sharpe(asset_rets, window=freq_year, periods=freq_year),
+            _roll_sharpe(strat_rets, window=freq_year, periods=freq_year),
         ],
         keys=["asset", "strategy"],
         axis=1,
