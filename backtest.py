@@ -121,12 +121,13 @@ def backtest(
     asset_perf = pd.concat(
         [
             asset_rets.apply(_sharpe, periods=freq_year),
-            asset_rets.apply(_ann_vol, periods=freq_year),
+            asset_rets.apply(_vol, periods=freq_year),
             asset_rets.apply(_cagr, periods=freq_year),
         ],
         keys=["sharpe", "volatility", "cagr"],
         axis=1,
     )
+
     # Backtest a cost-aware strategy as defined by the given weights.
     # 1. Calc costs
     # 2. Evaluate asset-wise performance
@@ -157,51 +158,61 @@ def backtest(
     # Shift the strategy weights by 1 period to prevent look-ahead bias
     strat_rets = strategy_weights.shift(1) * (asset_rets - costs)
     strat_cum = (1 + strat_rets).cumprod() - 1
-    profit_cost_ratio = strat_cum.iloc[-1] / costs.sum()
+    strat_profit_cost_ratio = strat_cum.iloc[-1] / costs.sum()
     strat_perf = pd.concat(
         [
             strat_rets.apply(_sharpe, periods=freq_year),
-            strat_rets.apply(_ann_vol, periods=freq_year),
+            strat_rets.apply(_vol, periods=freq_year),
             strat_rets.apply(_cagr, periods=freq_year),
             _trade_count(strategy_weights) / strat_days,
-            profit_cost_ratio,
+            strat_profit_cost_ratio,
         ],
         keys=["sharpe", "volatility", "cagr", "trades_per_day", "profit_cost_ratio"],
         axis=1,
     )
 
+    # Evaluate the strategy portfolio performance
+    port_rets = strat_rets.sum(axis=1)
+    port_cum = strat_cum.sum(axis=1)
+    port_profit_cost_ratio = port_cum.iloc[-1] / costs.sum().sum()
+    port_perf = pd.DataFrame(
+        {
+            "sharpe": _sharpe(port_rets, periods=freq_year),
+            "volatility": _vol(port_rets, periods=freq_year),
+            "cagr": _cagr(port_rets, periods=freq_year),
+            "profit_cost_ratio": port_profit_cost_ratio,
+        },
+        index=["portfolio"],
+    )
+
     # Combine the baseline and strategy asset-wise performance metrics
     # into a single dataframe for comparison
-    perf = pd.concat([asset_perf, strat_perf], keys=["asset", "strategy"], axis=1)
-    perf_cum = pd.concat([asset_cum, strat_cum], keys=["asset", "strategy"], axis=1)
+    perf = pd.concat(
+        [asset_perf, strat_perf],
+        keys=["asset", "strategy"],
+        axis=1,
+    )
+    perf_cum = pd.concat(
+        [asset_cum, strat_cum, port_cum],
+        keys=["asset", "strategy", "portfolio"],
+        axis=1,
+    )
     perf_roll_sr = pd.concat(
         [
             _roll_sharpe(asset_rets, window=freq_year, periods=freq_year),
             _roll_sharpe(strat_rets, window=freq_year, periods=freq_year),
+            _roll_sharpe(port_rets, window=freq_year, periods=freq_year),
         ],
-        keys=["asset", "strategy"],
+        keys=["asset", "strategy", "portfolio"],
         axis=1,
-    )
-
-    # Evaluate the strategy portfolio performance
-    strat_port_rets = strat_rets.sum(axis=1)
-    strat_port_cum = strat_cum.sum(axis=1)
-    strat_port_perf = pd.DataFrame(
-        {
-            "sharpe": _sharpe(strat_port_rets, periods=freq_year),
-            "volatility": _ann_vol(strat_port_rets, periods=freq_year),
-            "cagr": _cagr(strat_port_rets, periods=freq_year),
-            "profit_cost_ratio": profit_cost_ratio.sum().sum(),
-        },
-        index=["strategy"],
     )
 
     return (
         perf,
         perf_cum,
         perf_roll_sr,
-        strat_port_perf,
-        strat_port_cum,
+        port_perf,
+        port_cum,
     )
 
 
@@ -245,7 +256,7 @@ def _cagr(
     return cagr
 
 
-def _ann_vol(
+def _vol(
     rets: pd.DataFrame | pd.Series, periods: int = TRADING_DAYS_YEAR
 ) -> pd.DataFrame | pd.Series:
     return rets.std() * np.sqrt(periods)
