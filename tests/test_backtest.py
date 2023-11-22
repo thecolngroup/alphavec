@@ -6,7 +6,7 @@ from functools import partial
 import numpy as np
 import pandas as pd
 
-from backtest import backtest, pct_commission
+from alphavec.backtest import backtest, pct_commission
 
 workspace_root = str(PurePath(os.getcwd()))
 sys.path.append(workspace_root)
