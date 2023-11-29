@@ -54,4 +54,4 @@ def test_backtest():
         spread_pct=0.001,
     )
 
-    assert perf.loc["BTCUSDT", ("asset", "sharpe")].round(2) == 0.86
+    assert perf.loc["BTCUSDT", ("asset", "annual_sharpe")].round(2) == 0.86
