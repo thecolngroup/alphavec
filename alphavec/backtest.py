@@ -275,7 +275,7 @@ def _vol(
 def _max_drawdown(rets: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
     cumprod = (1 + rets).cumprod()
     cummax = cumprod.cummax()
-    max_drawdown = (cummax - cumprod).max()
+    max_drawdown = ((cummax - cumprod) / cummax).max()
     return max_drawdown
 
 
