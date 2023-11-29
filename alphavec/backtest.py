@@ -113,8 +113,8 @@ def backtest(
     # Calc the number of data intervals in a trading year for annualised metrics
     freq_year = freq_day * TRADING_DAYS_YEAR
 
-    # Backtest a baseline buy and hold scenario for each asset so that we can assess
-    # the relative performance of the strategy
+    # Backtest each asset so that we can assess the relative performance of the strategy
+    # Asset returns approximate a baseline buy and hold scenario
     # Use pct returns rather than log returns since all costs are in pct terms too
     asset_rets = mark_prices.pct_change()
     asset_cum = (1 + asset_rets).cumprod() - 1
@@ -123,12 +123,13 @@ def backtest(
             asset_rets.apply(_sharpe, periods=freq_year),
             asset_rets.apply(_vol, periods=freq_year),
             asset_rets.apply(_cagr, periods=freq_year),
+            asset_rets.apply(_max_drawdown),
         ],
-        keys=["sharpe", "volatility", "cagr"],
+        keys=["sharpe", "volatility", "cagr", "max_drawdown"],
         axis=1,
     )
 
-    # Backtest a cost-aware strategy as defined by the given weights.
+    # Backtest a cost-aware strategy as defined by the given weights:
     # 1. Calc costs
     # 2. Evaluate asset-wise performance
     # 3. Evalute portfolio performance
@@ -138,7 +139,7 @@ def backtest(
 
     # Calc the number of valid trading periods for each asset
     # in order to support performance calcs over a ragged time series
-    #  with older and newer assets
+    # with older and newer assets
     strat_valid_periods = strategy_weights.apply(
         lambda col: col.loc[col.first_valid_index() :].count()
     )
@@ -164,10 +165,18 @@ def backtest(
             strat_rets.apply(_sharpe, periods=freq_year),
             strat_rets.apply(_vol, periods=freq_year),
             strat_rets.apply(_cagr, periods=freq_year),
+            strat_rets.apply(_max_drawdown),
             _trade_count(strategy_weights) / strat_days,
             strat_profit_cost_ratio,
         ],
-        keys=["sharpe", "volatility", "cagr", "trades_per_day", "profit_cost_ratio"],
+        keys=[
+            "annual_sharpe",
+            "annual_volatility",
+            "cagr",
+            "max_drawdown,",
+            "trades_per_day",
+            "profit_cost_ratio",
+        ],
         axis=1,
     )
 
@@ -177,15 +186,16 @@ def backtest(
     port_profit_cost_ratio = port_cum.iloc[-1] / costs.sum().sum()
     port_perf = pd.DataFrame(
         {
-            "sharpe": _sharpe(port_rets, periods=freq_year),
-            "volatility": _vol(port_rets, periods=freq_year),
+            "annual_sharpe": _sharpe(port_rets, periods=freq_year),
+            "annual_volatility": _vol(port_rets, periods=freq_year),
             "cagr": _cagr(port_rets, periods=freq_year),
+            "max_drawdown": _max_drawdown(port_rets),
             "profit_cost_ratio": port_profit_cost_ratio,
         },
         index=["portfolio"],
     )
 
-    # Combine the baseline and strategy asset-wise performance metrics
+    # Combine the asset and strategy performance metrics
     # into a single dataframe for comparison
     perf = pd.concat(
         [asset_perf, strat_perf],
@@ -260,6 +270,13 @@ def _vol(
     rets: pd.DataFrame | pd.Series, periods: int = TRADING_DAYS_YEAR
 ) -> pd.DataFrame | pd.Series:
     return rets.std() * np.sqrt(periods)
+
+
+def _max_drawdown(rets: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
+    cumprod = (1 + rets).cumprod()
+    cummax = cumprod.cummax()
+    max_drawdown = (cummax - cumprod).max()
+    return max_drawdown
 
 
 def _trade_count(weights: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
