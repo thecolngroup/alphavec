@@ -125,7 +125,7 @@ def backtest(
             asset_rets.apply(_cagr, periods=freq_year),
             asset_rets.apply(_max_drawdown),
         ],
-        keys=["sharpe", "volatility", "cagr", "max_drawdown"],
+        keys=["annual_sharpe", "annual_volatility", "cagr", "max_drawdown"],
         axis=1,
     )
 
