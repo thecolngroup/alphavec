@@ -30,7 +30,7 @@ The goal was to add just enough extra complexity to this basic building block in
 
 ## Install
 
-``` pip install git+https://github.com/thecolngroup/alphavec@v0.0.15-alpha ```
+``` pip install git+https://github.com/thecolngroup/alphavec@v0.0.2-alpha ```
 
 ## Usage
 
