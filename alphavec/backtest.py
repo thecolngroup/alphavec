@@ -56,7 +56,6 @@ def pct_commission(weights: pd.DataFrame, prices: pd.DataFrame, fee: float) -> f
 def backtest(
     strategy_weights: pd.DataFrame,
     mark_prices: pd.DataFrame,
-    leverage: float = 1,
     freq_day: int = 1,
     commission_func: Callable[[pd.DataFrame, pd.DataFrame], float] = zero_commission,
     ann_borrow_pct: float = 0,
@@ -64,7 +63,7 @@ def backtest(
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series]:
     """Backtests a trading strategy.
 
-    Strategy is simulated using the give weights, prices, and cost parameters.
+    Strategy is simulated using the given weights, prices, and cost parameters.
     Zero costs are calculated by default: no commission, borrowing, and no spread.
 
     Daily interval data is assumed by default.
@@ -78,7 +77,7 @@ def backtest(
         strategy_weights:
             Weights (-1 to 1) of the assets in the strategy at each interval.
             Each column should be the weights for a specific asset, with the column name being the asset name.
-            Column names should match strategy_weights.
+            Column names should match mark_weights.
             Index should be a DatetimeIndex.
             Shape must match mark_prices.
         mark_prices:
@@ -88,10 +87,9 @@ def backtest(
             Column names should match strategy_weights.
             Index should be a DatetimeIndex.
             Shape must match strategy_weights.
-        leverage: Leverage used in the strategy. Defaults to 1.
         freq_day: Number of strategy intervals in a trading day. Defaults to 1.
         commission_func: Function to calculate commission cost. Defaults to zero_commission.
-        ann_borrow_pct: Annual borrowing cost percentage applied when leverage > 1. Defaults to 0.
+        ann_borrow_pct: Annual borrowing cost percentage applied when asset weight > 1. Defaults to 0.
         spread_pct: Spread cost percentage. Defaults to 0.
 
     Returns:
@@ -134,9 +132,6 @@ def backtest(
     # 2. Evaluate asset-wise performance
     # 3. Evalute portfolio performance
 
-    # Adjust the weights for leverage
-    strategy_weights *= leverage
-
     # Calc the number of valid trading periods for each asset
     # in order to support performance calcs over a ragged time series
     # with older and newer assets
@@ -149,7 +144,7 @@ def backtest(
     # deduct them from the strategy returns
     cmn_costs = commission_func(strategy_weights, mark_prices) / mark_prices
     borrow_costs = (
-        _borrow(strategy_weights, mark_prices, (ann_borrow_pct / freq_year), leverage)
+        _borrow(strategy_weights, mark_prices, (ann_borrow_pct / freq_year))
         / mark_prices
     )
     spread_costs = _spread(strategy_weights, mark_prices, spread_pct) / mark_prices
@@ -300,9 +295,9 @@ def _borrow(
     weights: pd.DataFrame | pd.Series,
     prices: pd.DataFrame | pd.Series,
     borrow_pct: float = 0,
-    lev: float = 1,
 ) -> pd.DataFrame | pd.Series:
     size = weights.abs().fillna(0)
     value = size * prices
-    costs = value * borrow_pct * (lev - 1)
+    lev = (size - 1).clip(lower=0)
+    costs = value * borrow_pct * lev
     return costs.fillna(0)
