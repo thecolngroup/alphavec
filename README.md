@@ -24,13 +24,13 @@ Alphavec is an antidote to the various bloated and complex backtest frameworks.
 
 To validate ideas all you really need is...
 
-``` weights.shift(1) * log_returns ```
+``` weights.shift(1) * returns ```
 
 The goal was to add just enough extra complexity to this basic building block in order to support sound development of cost-aware systematic trading strategies.
 
 ## Install
 
-``` pip install git+https://github.com/thecolngroup/alphavec@v0.0.2-alpha ```
+``` pip install git+https://github.com/thecolngroup/alphavec@main```
 
 ## Usage
 
