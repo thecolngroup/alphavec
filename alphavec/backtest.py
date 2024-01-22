@@ -3,7 +3,8 @@ import numpy as np
 import pandas as pd
 
 
-TRADING_DAYS_YEAR = 252
+DEFAULT_TRADING_DAYS_YEAR = 252
+DEFAULT_RISK_FREE_RATE = 0.02
 
 
 def zero_commission(weights: pd.DataFrame, prices: pd.DataFrame) -> float:
@@ -55,23 +56,25 @@ def pct_commission(weights: pd.DataFrame, prices: pd.DataFrame, fee: float) -> f
 
 def backtest(
     strategy_weights: pd.DataFrame,
-    mark_prices: pd.DataFrame,
+    trade_prices: pd.DataFrame,
     freq_day: int = 1,
     commission_func: Callable[[pd.DataFrame, pd.DataFrame], float] = zero_commission,
     ann_borrow_pct: float = 0,
     spread_pct: float = 0,
+    risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series]:
     """Backtests a trading strategy.
 
     Strategy is simulated using the given weights, prices, and cost parameters.
-    Zero costs are calculated by default: no commission, borrowing, and no spread.
+    To prevent look-ahead bias, the strategy weights are shifted by 1 period in the backtest.
+    Zero costs are calculated by default: no commission, no borrowing, no spread.
 
     Daily interval data is assumed by default.
-    If you want to use a different interval, you must pass in the appropriate freq_day value
+    If you wish to use a different interval pass in the appropriate freq_day value
     e.g. if you are using hourly data in a 24-hour market such as crypto, you should pass in 24.
 
     Performance is reported both asset-wise and as a portfolio.
-    Annualised metrics always use a 252 day trading year.
+    Annualized metrics use the default trading days per year of 252.
 
     Args:
         strategy_weights:
@@ -80,9 +83,9 @@ def backtest(
             Column names should match mark_weights.
             Index should be a DatetimeIndex.
             Shape must match mark_prices.
-        mark_prices:
-            Mark prices used to calculate returns of the assets at each interval.
-            The mark price should be the realistic price at which the asset can be traded each interval.
+        trade_prices:
+            Trade prices used to calculate returns of the assets at each interval.
+            Remember: the trade prices will be shifted relative to the strategy weights to prevent look-ahead bias.
             Each column should be the mark prices for a specific asset, with the column name being the asset name.
             Column names should match strategy_weights.
             Index should be a DatetimeIndex.
@@ -91,6 +94,7 @@ def backtest(
         commission_func: Function to calculate commission cost. Defaults to zero_commission.
         ann_borrow_pct: Annual borrowing cost percentage applied when asset weight > 1. Defaults to 0.
         spread_pct: Spread cost percentage. Defaults to 0.
+        risk_free_rate: Risk-free rate used to calculate Sharpe ratio. Defaults to 0.02.
 
     Returns:
         A tuple containing five DataFrames that report backtest performance:
@@ -102,23 +106,23 @@ def backtest(
     """
 
     assert (
-        strategy_weights.shape == mark_prices.shape
+        strategy_weights.shape == trade_prices.shape
     ), "Weights and prices must have the same shape"
     assert (
-        strategy_weights.columns.tolist() == mark_prices.columns.tolist()
+        strategy_weights.columns.tolist() == trade_prices.columns.tolist()
     ), "Weights and prices must have the same column names"
 
     # Calc the number of data intervals in a trading year for annualised metrics
-    freq_year = freq_day * TRADING_DAYS_YEAR
+    freq_year = freq_day * DEFAULT_TRADING_DAYS_YEAR
 
     # Backtest each asset so that we can assess the relative performance of the strategy
     # Asset returns approximate a baseline buy and hold scenario
     # Use pct returns rather than log returns since all costs are in pct terms too
-    asset_rets = mark_prices.pct_change()
+    asset_rets = trade_prices.pct_change()
     asset_cum = (1 + asset_rets).cumprod() - 1
     asset_perf = pd.concat(
         [
-            asset_rets.apply(_sharpe, periods=freq_year),
+            asset_rets.apply(_sharpe, periods=freq_year, risk_free_rate=risk_free_rate),
             asset_rets.apply(_vol, periods=freq_year),
             asset_rets.apply(_cagr, periods=freq_year),
             asset_rets.apply(_max_drawdown),
@@ -142,12 +146,12 @@ def backtest(
 
     # Calc each cost component in percentage terms so we can
     # deduct them from the strategy returns
-    cmn_costs = commission_func(strategy_weights, mark_prices) / mark_prices
+    cmn_costs = commission_func(strategy_weights, trade_prices) / trade_prices
     borrow_costs = (
-        _borrow(strategy_weights, mark_prices, (ann_borrow_pct / freq_year))
-        / mark_prices
+        _borrow(strategy_weights, trade_prices, (ann_borrow_pct / freq_year))
+        / trade_prices
     )
-    spread_costs = _spread(strategy_weights, mark_prices, spread_pct) / mark_prices
+    spread_costs = _spread(strategy_weights, trade_prices, spread_pct) / trade_prices
     costs = cmn_costs + borrow_costs + spread_costs
 
     # Evaluate the cost-aware strategy returns and key performance metrics
@@ -157,7 +161,7 @@ def backtest(
     strat_profit_cost_ratio = strat_cum.iloc[-1] / costs.sum()
     strat_perf = pd.concat(
         [
-            strat_rets.apply(_sharpe, periods=freq_year),
+            strat_rets.apply(_sharpe, periods=freq_year, risk_free_rate=risk_free_rate),
             strat_rets.apply(_vol, periods=freq_year),
             strat_rets.apply(_cagr, periods=freq_year),
             strat_rets.apply(_max_drawdown),
@@ -181,7 +185,9 @@ def backtest(
     port_profit_cost_ratio = port_cum.iloc[-1] / costs.sum().sum()
     port_perf = pd.DataFrame(
         {
-            "annual_sharpe": _sharpe(port_rets, periods=freq_year),
+            "annual_sharpe": _sharpe(
+                port_rets, periods=freq_year, risk_free_rate=risk_free_rate
+            ),
             "annual_volatility": _vol(port_rets, periods=freq_year),
             "cagr": _cagr(port_rets, periods=freq_year),
             "max_drawdown": _max_drawdown(port_rets),
@@ -204,9 +210,24 @@ def backtest(
     )
     perf_roll_sr = pd.concat(
         [
-            _roll_sharpe(asset_rets, window=freq_year, periods=freq_year),
-            _roll_sharpe(strat_rets, window=freq_year, periods=freq_year),
-            _roll_sharpe(port_rets, window=freq_year, periods=freq_year),
+            _roll_sharpe(
+                asset_rets,
+                window=freq_year,
+                periods=freq_year,
+                risk_free_rate=risk_free_rate,
+            ),
+            _roll_sharpe(
+                strat_rets,
+                window=freq_year,
+                periods=freq_year,
+                risk_free_rate=risk_free_rate,
+            ),
+            _roll_sharpe(
+                port_rets,
+                window=freq_year,
+                periods=freq_year,
+                risk_free_rate=risk_free_rate,
+            ),
         ],
         keys=["asset", "strategy", "portfolio"],
         axis=1,
@@ -223,29 +244,31 @@ def backtest(
 
 def _sharpe(
     rets: pd.DataFrame | pd.Series,
-    risk_free_rate: float = 0,
-    periods: int = TRADING_DAYS_YEAR,
+    risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
+    periods: int = DEFAULT_TRADING_DAYS_YEAR,
 ) -> float:
+    ann_rfr = (1 + risk_free_rate) ** (1 / periods) - 1
     mu = rets.mean()
     sigma = rets.std()
-    sr = (mu - risk_free_rate) / sigma
+    sr = (mu - ann_rfr) / sigma
     return sr * np.sqrt(periods)
 
 
 def _roll_sharpe(
     rets: pd.DataFrame | pd.Series,
-    risk_free_rate: float = 0,
-    window: int = TRADING_DAYS_YEAR,
-    periods: int = TRADING_DAYS_YEAR,
+    risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
+    window: int = DEFAULT_TRADING_DAYS_YEAR,
+    periods: int = DEFAULT_TRADING_DAYS_YEAR,
 ) -> pd.DataFrame | pd.Series:
+    ann_rfr = (1 + risk_free_rate) ** (1 / periods) - 1
     mu = rets.rolling(window).mean()
     sigma = rets.rolling(window).std()
-    sr = (mu - risk_free_rate) / sigma
+    sr = (mu - ann_rfr) / sigma
     return sr * np.sqrt(periods)
 
 
 def _cagr(
-    rets: pd.DataFrame | pd.Series, periods: int = TRADING_DAYS_YEAR
+    rets: pd.DataFrame | pd.Series, periods: int = DEFAULT_TRADING_DAYS_YEAR
 ) -> pd.DataFrame | pd.Series:
     cumprod = (1 + rets).cumprod().dropna()
     if len(cumprod) == 0:
@@ -262,7 +285,7 @@ def _cagr(
 
 
 def _vol(
-    rets: pd.DataFrame | pd.Series, periods: int = TRADING_DAYS_YEAR
+    rets: pd.DataFrame | pd.Series, periods: int = DEFAULT_TRADING_DAYS_YEAR
 ) -> pd.DataFrame | pd.Series:
     return rets.std() * np.sqrt(periods)
 
