@@ -108,17 +108,19 @@ def backtest(
             5. Portoflio equity curve.
     """
 
-    assert weights.shape == prices.shape, "Weights and returns must have the same shape"
+    assert weights.shape == prices.shape, "Weights and prices must have the same shape"
     assert (
         weights.columns.tolist() == prices.columns.tolist()
-    ), "Weights and returns must have the same column (asset) names"
+    ), "Weights and prices must have the same column (asset) names"
 
     # Calc the number of data intervals in a trading year for annualised metrics
     freq_year = freq_day * DEFAULT_TRADING_DAYS_YEAR
 
     # Backtest each asset so that we can assess the relative performance of the strategy
     # Asset returns approximate a baseline buy and hold scenario
-    asset_rets = prices.pct_change()
+    # Truncate the asset wise returns to account for shifting to ensure the
+    # asset and strategy performance metrics are comparable.
+    asset_rets = prices.pct_change()[:-shift_periods]
     asset_cum = (1 + asset_rets).cumprod() - 1
     asset_perf = pd.concat(
         [
@@ -136,14 +138,6 @@ def backtest(
     # 2. Evaluate asset-wise performance
     # 3. Evalute portfolio performance
 
-    # Calc the number of valid trading periods for each asset
-    # in order to support performance calcs over a ragged time series
-    # with older and newer assets
-    strat_valid_periods = weights.apply(
-        lambda col: col.loc[col.first_valid_index() :].count()
-    )
-    strat_days = strat_valid_periods / freq_day
-
     # Calc each cost component in percentage terms so we can
     # deduct them from the strategy returns
     cmn_costs = commission_func(weights, prices) / prices
@@ -151,9 +145,19 @@ def backtest(
     spread_costs = _spread(weights, prices, spread_pct) / prices
     costs = cmn_costs + borrow_costs + spread_costs
 
+    # Calc the number of valid trading periods for each asset
+    # to calculate correct number of trades
+    strat_valid_periods = weights.apply(
+        lambda col: col.loc[col.first_valid_index() :].count()
+    )
+    strat_days = strat_valid_periods / freq_day
+
     # Evaluate the cost-aware strategy returns and key performance metrics
     # Use the shift arg to prevent look-ahead bias
-    strat_rets = weights * (asset_rets.shift(-shift_periods) - costs)
+    # Truncate the returns to remove the empty intervals resulting from the shift
+    strat_rets = (
+        weights * (prices.pct_change() - costs).shift(-shift_periods)[:-shift_periods]
+    )
     strat_cum = (1 + strat_rets).cumprod() - 1
     strat_profit_cost_ratio = strat_cum.iloc[-1] / costs.sum()
     strat_perf = pd.concat(
