@@ -34,20 +34,21 @@ def test_backtest():
     market = market[~market.index.duplicated()]
     market = market.unstack(level=0).sort_index(axis=1).stack()
 
-    mark_prices = pd.DataFrame(
+    prices = pd.DataFrame(
         market.loc[:, ["c"]].unstack(level=1).droplevel(level=0, axis=1)
     )
 
-    weights = mark_prices.copy()
+    weights = prices.copy()
+    weights = weights["2019-01-01":]
     weights[:] = 2
 
-    weights = weights["2019-01-01":]
-    mark_prices = mark_prices.mask(weights.isna())
-    mark_prices, weights = mark_prices.align(weights, join="inner")
+    returns = prices.pct_change().shift(-1)
+    returns = returns.mask(weights.isna())
+    returns, weights = returns.align(weights, join="inner")
 
     perf, perf_cum, perf_sr, port_perf, port_cum = backtest(
         weights,
-        mark_prices,
+        returns,
         freq_day=1,
         commission_func=partial(pct_commission, fee=0.001),
         ann_borrow_pct=0.05,

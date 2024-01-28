@@ -55,19 +55,23 @@ def pct_commission(weights: pd.DataFrame, prices: pd.DataFrame, fee: float) -> f
 
 
 def backtest(
-    strategy_weights: pd.DataFrame,
-    trade_prices: pd.DataFrame,
+    weights: pd.DataFrame,
+    returns: pd.DataFrame,
     freq_day: int = 1,
     commission_func: Callable[[pd.DataFrame, pd.DataFrame], float] = zero_commission,
     ann_borrow_pct: float = 0,
     spread_pct: float = 0,
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series]:
-    """Backtests a trading strategy.
+    """Backtest a trading strategy.
 
-    Strategy is simulated using the given weights, prices, and cost parameters.
-    To prevent look-ahead bias, the strategy weights are shifted by 1 period in the backtest.
+    Strategy is simulated using the given weights, returns, and cost parameters.
     Zero costs are calculated by default: no commission, no borrowing, no spread.
+
+    To prevent look-ahead bias you must shift the returns relative to the weights
+    before passing them into this function. Assumming your weights are calculated
+    on close: if using close-to-close returns you should shift returns by -1,
+    for open-to-open returns shift by -2, e.g. returns.shift(-2).
 
     Daily interval data is assumed by default.
     If you wish to use a different interval pass in the appropriate freq_day value
@@ -77,19 +81,19 @@ def backtest(
     Annualized metrics use the default trading days per year of 252.
 
     Args:
-        strategy_weights:
+        weights:
             Weights (-1 to 1) of the assets in the strategy at each interval.
             Each column should be the weights for a specific asset, with the column name being the asset name.
-            Column names should match mark_weights.
+            Column names should match returns.
             Index should be a DatetimeIndex.
-            Shape must match mark_prices.
-        trade_prices:
-            Trade prices used to calculate returns of the assets at each interval.
-            Remember: the trade prices will be shifted relative to the strategy weights to prevent look-ahead bias.
+            Shape must match returns.
+        returns:
+            Simple (percentage) returns of the assets at each interval.
+            Remember to shift returns relative to weights to prevent look-ahead bias before passing into this function.
             Each column should be the mark prices for a specific asset, with the column name being the asset name.
-            Column names should match strategy_weights.
+            Column names should match weights.
             Index should be a DatetimeIndex.
-            Shape must match strategy_weights.
+            Shape must match weights.
         freq_day: Number of strategy intervals in a trading day. Defaults to 1.
         commission_func: Function to calculate commission cost. Defaults to zero_commission.
         ann_borrow_pct: Annual borrowing cost percentage applied when asset weight > 1. Defaults to 0.
@@ -106,19 +110,18 @@ def backtest(
     """
 
     assert (
-        strategy_weights.shape == trade_prices.shape
-    ), "Weights and prices must have the same shape"
+        weights.shape == returns.shape
+    ), "Weights and returns must have the same shape"
     assert (
-        strategy_weights.columns.tolist() == trade_prices.columns.tolist()
-    ), "Weights and prices must have the same column names"
+        weights.columns.tolist() == returns.columns.tolist()
+    ), "Weights and returns must have the same column (asset) names"
 
     # Calc the number of data intervals in a trading year for annualised metrics
     freq_year = freq_day * DEFAULT_TRADING_DAYS_YEAR
 
     # Backtest each asset so that we can assess the relative performance of the strategy
     # Asset returns approximate a baseline buy and hold scenario
-    # Use pct returns rather than log returns since all costs are in pct terms too
-    asset_rets = trade_prices.pct_change()
+    asset_rets = returns.copy()
     asset_cum = (1 + asset_rets).cumprod() - 1
     asset_perf = pd.concat(
         [
@@ -139,24 +142,20 @@ def backtest(
     # Calc the number of valid trading periods for each asset
     # in order to support performance calcs over a ragged time series
     # with older and newer assets
-    strat_valid_periods = strategy_weights.apply(
+    strat_valid_periods = weights.apply(
         lambda col: col.loc[col.first_valid_index() :].count()
     )
     strat_days = strat_valid_periods / freq_day
 
     # Calc each cost component in percentage terms so we can
     # deduct them from the strategy returns
-    cmn_costs = commission_func(strategy_weights, trade_prices) / trade_prices
-    borrow_costs = (
-        _borrow(strategy_weights, trade_prices, (ann_borrow_pct / freq_year))
-        / trade_prices
-    )
-    spread_costs = _spread(strategy_weights, trade_prices, spread_pct) / trade_prices
+    cmn_costs = commission_func(weights, returns) / returns
+    borrow_costs = _borrow(weights, returns, (ann_borrow_pct / freq_year)) / returns
+    spread_costs = _spread(weights, returns, spread_pct) / returns
     costs = cmn_costs + borrow_costs + spread_costs
 
     # Evaluate the cost-aware strategy returns and key performance metrics
-    # Shift the strategy weights by 1 period to prevent look-ahead bias
-    strat_rets = strategy_weights.shift(1) * (asset_rets - costs)
+    strat_rets = weights * (asset_rets - costs)
     strat_cum = (1 + strat_rets).cumprod() - 1
     strat_profit_cost_ratio = strat_cum.iloc[-1] / costs.sum()
     strat_perf = pd.concat(
@@ -165,7 +164,7 @@ def backtest(
             strat_rets.apply(_vol, periods=freq_year),
             strat_rets.apply(_cagr, periods=freq_year),
             strat_rets.apply(_max_drawdown),
-            _trade_count(strategy_weights) / strat_days,
+            _trade_count(weights) / strat_days,
             strat_profit_cost_ratio,
         ],
         keys=[
