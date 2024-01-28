@@ -56,9 +56,9 @@ def pct_commission(weights: pd.DataFrame, prices: pd.DataFrame, fee: float) -> f
 
 def backtest(
     weights: pd.DataFrame,
-    returns: pd.DataFrame,
+    prices: pd.DataFrame,
     freq_day: int = 1,
-    shift: int = 1,
+    shift_periods: int = 1,
     commission_func: Callable[[pd.DataFrame, pd.DataFrame], float] = zero_commission,
     ann_borrow_pct: float = 0,
     spread_pct: float = 0,
@@ -86,15 +86,14 @@ def backtest(
             Column names should match returns.
             Index should be a DatetimeIndex.
             Shape must match returns.
-        returns:
-            Simple (percentage) returns of the assets at each interval.
-            Remember to shift returns relative to weights to prevent look-ahead bias before passing into this function.
+        prices:
+            Prices of the assets at each interval used to calculate returns ans costs.
             Each column should be the mark prices for a specific asset, with the column name being the asset name.
             Column names should match weights.
             Index should be a DatetimeIndex.
             Shape must match weights.
         freq_day: Number of strategy intervals in a trading day. Defaults to 1.
-        shift: Number of intervals to shift returns relative to weights. Defaults to 1 which is suitable for close-to-close returns.
+        shift_periods: Positive integer for number of intervals to shift returns relative to weights. Defaults to 1 which is suitable for close-to-close returns.
         commission_func: Function to calculate commission cost. Defaults to zero_commission.
         ann_borrow_pct: Annual borrowing cost percentage applied when asset weight > 1. Defaults to 0.
         spread_pct: Spread cost percentage. Defaults to 0.
@@ -109,11 +108,9 @@ def backtest(
             5. Portoflio equity curve.
     """
 
+    assert weights.shape == prices.shape, "Weights and returns must have the same shape"
     assert (
-        weights.shape == returns.shape
-    ), "Weights and returns must have the same shape"
-    assert (
-        weights.columns.tolist() == returns.columns.tolist()
+        weights.columns.tolist() == prices.columns.tolist()
     ), "Weights and returns must have the same column (asset) names"
 
     # Calc the number of data intervals in a trading year for annualised metrics
@@ -121,7 +118,7 @@ def backtest(
 
     # Backtest each asset so that we can assess the relative performance of the strategy
     # Asset returns approximate a baseline buy and hold scenario
-    asset_rets = returns.copy()
+    asset_rets = prices.pct_change()
     asset_cum = (1 + asset_rets).cumprod() - 1
     asset_perf = pd.concat(
         [
@@ -149,14 +146,14 @@ def backtest(
 
     # Calc each cost component in percentage terms so we can
     # deduct them from the strategy returns
-    cmn_costs = commission_func(weights, returns) / returns
-    borrow_costs = _borrow(weights, returns, (ann_borrow_pct / freq_year)) / returns
-    spread_costs = _spread(weights, returns, spread_pct) / returns
+    cmn_costs = commission_func(weights, prices) / prices
+    borrow_costs = _borrow(weights, prices, (ann_borrow_pct / freq_year)) / prices
+    spread_costs = _spread(weights, prices, spread_pct) / prices
     costs = cmn_costs + borrow_costs + spread_costs
 
     # Evaluate the cost-aware strategy returns and key performance metrics
     # Use the shift arg to prevent look-ahead bias
-    strat_rets = weights * (asset_rets.shift(-shift) - costs)
+    strat_rets = weights * (asset_rets.shift(-shift_periods) - costs)
     strat_cum = (1 + strat_rets).cumprod() - 1
     strat_profit_cost_ratio = strat_cum.iloc[-1] / costs.sum()
     strat_perf = pd.concat(

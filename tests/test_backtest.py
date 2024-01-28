@@ -42,13 +42,12 @@ def test_backtest():
     weights = weights["2019-01-01":]
     weights[:] = 2
 
-    returns = prices.pct_change()
-    returns = returns.mask(weights.isna())
-    returns, weights = returns.align(weights, join="inner")
+    prices = prices.mask(weights.isna())
+    prices, weights = prices.align(weights, join="inner")
 
     perf, perf_cum, perf_sr, port_perf, port_cum = backtest(
         weights,
-        returns,
+        prices,
         freq_day=1,
         commission_func=partial(pct_commission, fee=0.001),
         ann_borrow_pct=0.05,
