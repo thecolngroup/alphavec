@@ -120,7 +120,7 @@ def backtest(
     # Asset returns approximate a baseline buy and hold scenario
     # Truncate the asset wise returns to account for shifting to ensure the
     # asset and strategy performance metrics are comparable.
-    asset_rets = prices.pct_change()[:-shift_periods]
+    asset_rets = prices.pct_change().iloc[:-shift_periods]
     asset_cum = (1 + asset_rets).cumprod() - 1
     asset_perf = pd.concat(
         [
@@ -155,9 +155,9 @@ def backtest(
     # Evaluate the cost-aware strategy returns and key performance metrics
     # Use the shift arg to prevent look-ahead bias
     # Truncate the returns to remove the empty intervals resulting from the shift
-    strat_rets = (
-        weights * (prices.pct_change() - costs).shift(-shift_periods)[:-shift_periods]
-    )
+    strat_rets = (weights * (prices.pct_change() - costs).shift(-shift_periods)).iloc[
+        :-shift_periods
+    ]
     strat_cum = (1 + strat_rets).cumprod() - 1
     strat_profit_cost_ratio = strat_cum.iloc[-1] / costs.sum()
     strat_perf = pd.concat(

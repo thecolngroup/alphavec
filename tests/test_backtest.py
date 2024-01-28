@@ -35,7 +35,7 @@ def test_backtest():
     market = market.unstack(level=0).sort_index(axis=1).stack()
 
     prices = pd.DataFrame(
-        market.loc[:, ["c"]].unstack(level=1).droplevel(level=0, axis=1)
+        market.loc[:, ["o"]].unstack(level=1).droplevel(level=0, axis=1)
     )
 
     weights = prices.copy()
@@ -49,9 +49,10 @@ def test_backtest():
         weights,
         prices,
         freq_day=1,
+        shift_periods=2,
         commission_func=partial(pct_commission, fee=0.001),
         ann_borrow_pct=0.05,
         spread_pct=0.001,
     )
 
-    assert perf.loc["BTCUSDT", ("asset", "annual_sharpe")].round(2) == 0.81
+    assert perf.loc["BTCUSDT", ("asset", "annual_sharpe")].round(2) == 0.83
