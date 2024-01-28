@@ -58,6 +58,7 @@ def backtest(
     weights: pd.DataFrame,
     returns: pd.DataFrame,
     freq_day: int = 1,
+    shift: int = 1,
     commission_func: Callable[[pd.DataFrame, pd.DataFrame], float] = zero_commission,
     ann_borrow_pct: float = 0,
     spread_pct: float = 0,
@@ -68,10 +69,8 @@ def backtest(
     Strategy is simulated using the given weights, returns, and cost parameters.
     Zero costs are calculated by default: no commission, no borrowing, no spread.
 
-    To prevent look-ahead bias you must shift the returns relative to the weights
-    before passing them into this function. Assumming your weights are calculated
-    on close: if using close-to-close returns you should shift returns by -1,
-    for open-to-open returns shift by -2, e.g. returns.shift(-2).
+    To prevent look-ahead bias by default the returns will be shifted 1 interval
+    relative to the weights during backtest.
 
     Daily interval data is assumed by default.
     If you wish to use a different interval pass in the appropriate freq_day value
@@ -95,6 +94,7 @@ def backtest(
             Index should be a DatetimeIndex.
             Shape must match weights.
         freq_day: Number of strategy intervals in a trading day. Defaults to 1.
+        shift: Number of intervals to shift returns relative to weights. Defaults to 1 which is suitable for close-to-close returns.
         commission_func: Function to calculate commission cost. Defaults to zero_commission.
         ann_borrow_pct: Annual borrowing cost percentage applied when asset weight > 1. Defaults to 0.
         spread_pct: Spread cost percentage. Defaults to 0.
@@ -155,7 +155,8 @@ def backtest(
     costs = cmn_costs + borrow_costs + spread_costs
 
     # Evaluate the cost-aware strategy returns and key performance metrics
-    strat_rets = weights * (asset_rets - costs)
+    # Use the shift arg to prevent look-ahead bias
+    strat_rets = weights * (asset_rets.shift(-shift) - costs)
     strat_cum = (1 + strat_rets).cumprod() - 1
     strat_profit_cost_ratio = strat_cum.iloc[-1] / costs.sum()
     strat_perf = pd.concat(

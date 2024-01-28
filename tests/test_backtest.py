@@ -42,7 +42,7 @@ def test_backtest():
     weights = weights["2019-01-01":]
     weights[:] = 2
 
-    returns = prices.pct_change().shift(-1)
+    returns = prices.pct_change()
     returns = returns.mask(weights.isna())
     returns, weights = returns.align(weights, join="inner")
 
