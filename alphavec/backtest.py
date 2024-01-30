@@ -93,7 +93,7 @@ def backtest(
             Index should be a DatetimeIndex.
             Shape must match weights.
         freq_day: Number of strategy intervals in a trading day. Defaults to 1.
-        shift_periods: Positive integer for number of intervals to shift returns relative to weights. Defaults to 1 which is suitable for close-to-close returns.
+        shift_periods: Positive integer for number of intervals to shift returns relative to weights. Defaults to 1.
         commission_func: Function to calculate commission cost. Defaults to zero_commission.
         ann_borrow_pct: Annual borrowing cost percentage applied when asset weight > 1. Defaults to 0.
         spread_pct: Spread cost percentage. Defaults to 0.
