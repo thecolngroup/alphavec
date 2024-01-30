@@ -183,7 +183,8 @@ def backtest(
     # Evaluate the strategy portfolio performance
     port_rets = strat_rets.sum(axis=1)
     port_cum = strat_cum.sum(axis=1)
-    port_profit_cost_ratio = port_cum.iloc[-1] / costs.sum().sum()
+    port_costs = costs.sum().sum()
+    port_profit_cost_ratio = port_cum.iloc[-1] / port_costs if port_costs > 0 else None
     port_perf = pd.DataFrame(
         {
             "annual_sharpe": _sharpe(
