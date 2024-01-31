@@ -45,7 +45,7 @@ def test_backtest():
     prices = prices.mask(weights.isna())
     prices, weights = prices.align(weights, join="inner")
 
-    perf, perf_cum, perf_sr, port_perf, port_cum = backtest(
+    perf, perf_cum, perf_sr, port_perf, port_rets, port_cum = backtest(
         weights,
         prices,
         freq_day=1,

@@ -63,7 +63,9 @@ def backtest(
     ann_borrow_pct: float = 0,
     spread_pct: float = 0,
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series]:
+) -> tuple[
+    pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series
+]:
     """Backtest a trading strategy.
 
     Strategy is simulated using the given weights, returns, and cost parameters.
@@ -105,6 +107,7 @@ def backtest(
             2. Asset-wise equity curve.
             3. Asset-wise rolling annual Sharpe ratio.
             4. Portfolio performance.
+            5. Portfolio returns.
             5. Portoflio equity curve.
     """
 
@@ -240,6 +243,7 @@ def backtest(
         perf_cum,
         perf_roll_sr,
         port_perf,
+        port_rets,
         port_cum,
     )
 
