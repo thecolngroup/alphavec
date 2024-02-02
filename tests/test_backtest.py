@@ -2,6 +2,7 @@ import sys
 import os
 from pathlib import PurePath
 from functools import partial
+import logging
 
 import numpy as np
 import pandas as pd
@@ -35,12 +36,12 @@ def test_backtest():
     market = market.unstack(level=0).sort_index(axis=1).stack()
 
     prices = pd.DataFrame(
-        market.loc[:, ["o"]].unstack(level=1).droplevel(level=0, axis=1)
-    )
+        market.loc[:, ["c"]].unstack(level=1).droplevel(level=0, axis=1)
+    )[["BTCUSDT", "ETHUSDT"]]
 
     weights = prices.copy()
     weights = weights["2019-01-01":]
-    weights[:] = 2
+    weights[:] = 0.5
 
     prices = prices.mask(weights.isna())
     prices, weights = prices.align(weights, join="inner")
@@ -49,10 +50,13 @@ def test_backtest():
         weights,
         prices,
         freq_day=1,
-        shift_periods=2,
+        shift_periods=1,
         commission_func=partial(pct_commission, fee=0.001),
         ann_borrow_pct=0.05,
         spread_pct=0.001,
     )
 
-    assert perf.loc["BTCUSDT", ("asset", "annual_sharpe")].round(2) == 0.83
+    # Validate rolling SR similar to online sources e.g. portfoliolab
+    assert perf_sr.loc["2022-01-01T00:00:00.000", ("asset", "BTCUSDT")].round(2) == 0.01
+    assert perf_sr.loc["2022-01-01T00:00:00.000", ("asset", "ETHUSDT")].round(2) == 0.06
+    assert perf_sr.loc["2022-01-01T00:00:00.000", ("portfolio", 0)].round(2) == 0.04
