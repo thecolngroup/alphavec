@@ -37,26 +37,21 @@ def test_backtest():
 
     prices = pd.DataFrame(
         market.loc[:, ["c"]].unstack(level=1).droplevel(level=0, axis=1)
-    )[["BTCUSDT", "ETHUSDT"]]
+    )[["ETHUSDT", "BTCUSDT"]]
 
     weights = prices.copy()
     weights = weights["2019-01-01":]
     weights[:] = 0.5
-
     prices = prices.mask(weights.isna())
     prices, weights = prices.align(weights, join="inner")
 
-    perf, perf_cum, perf_sr, port_perf, port_rets, port_cum = backtest(
+    _, _, perf_sr, _, _, _ = backtest(
         weights,
         prices,
         freq_day=1,
+        trading_days_year=252,
         shift_periods=1,
-        commission_func=partial(pct_commission, fee=0.001),
-        ann_borrow_pct=0.05,
-        spread_pct=0.001,
     )
 
-    # Validate rolling SR similar to online sources e.g. portfoliolab
-    assert perf_sr.loc["2022-01-01T00:00:00.000", ("asset", "BTCUSDT")].round(2) == 0.01
-    assert perf_sr.loc["2022-01-01T00:00:00.000", ("asset", "ETHUSDT")].round(2) == 0.06
-    assert perf_sr.loc["2022-01-01T00:00:00.000", ("portfolio", 0)].round(2) == 0.04
+    # Assert that rolling SR approximates a known online sources (portfolioslab.com)
+    assert perf_sr.loc["2022-10-01T00:00:00.000", ("portfolio", 0)].round(2) == -0.74

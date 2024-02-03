@@ -125,7 +125,8 @@ def backtest(
     # Asset returns approximate a baseline buy and hold scenario
     # Truncate the asset wise returns to account for shifting to ensure the
     # asset and strategy performance metrics are comparable.
-    asset_rets = prices.pct_change().iloc[:-shift_periods]
+    asset_rets = prices.pct_change()
+    asset_rets = asset_rets.iloc[:-shift_periods] if shift_periods > 0 else asset_rets
     asset_cum = (1 + asset_rets).cumprod() - 1
     asset_perf = pd.concat(
         [
@@ -162,9 +163,8 @@ def backtest(
     # Evaluate the cost-aware strategy returns and key performance metrics
     # Use the shift arg to prevent look-ahead bias
     # Truncate the returns to remove the empty intervals resulting from the shift
-    strat_rets = (weights * (prices.pct_change() - costs).shift(-shift_periods)).iloc[
-        :-shift_periods
-    ]
+    strat_rets = weights * (prices.pct_change() - costs).shift(-shift_periods)
+    strat_rets = strat_rets.iloc[:-shift_periods] if shift_periods > 0 else strat_rets
     strat_cum = (1 + strat_rets).cumprod() - 1
     strat_profit_cost_ratio = strat_cum.iloc[-1] / costs.sum()
     strat_perf = pd.concat(
@@ -221,19 +221,19 @@ def backtest(
     )
     perf_roll_sr = pd.concat(
         [
-            _roll_sharpe(
+            _ann_roll_sharpe(
                 asset_rets,
                 window=freq_year,
                 periods=freq_year,
                 risk_free_rate=risk_free_rate,
             ),
-            _roll_sharpe(
+            _ann_roll_sharpe(
                 strat_rets,
                 window=freq_year,
                 periods=freq_year,
                 risk_free_rate=risk_free_rate,
             ),
-            _roll_sharpe(
+            _ann_roll_sharpe(
                 port_rets,
                 window=freq_year,
                 periods=freq_year,
@@ -266,7 +266,7 @@ def _ann_sharpe(
     return sr * np.sqrt(periods)
 
 
-def _roll_sharpe(
+def _ann_roll_sharpe(
     rets: pd.DataFrame | pd.Series,
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
     window: int = DEFAULT_TRADING_DAYS_YEAR,
@@ -276,7 +276,7 @@ def _roll_sharpe(
     mu = rets.rolling(window).mean()
     sigma = rets.rolling(window).std()
     sr = (mu - ann_rfr) / sigma
-    return sr
+    return sr * np.sqrt(periods)
 
 
 def _cagr(
