@@ -7,7 +7,7 @@ import logging
 import numpy as np
 import pandas as pd
 
-from alphavec.backtest import backtest
+import alphavec.backtest as bt
 
 workspace_root = str(PurePath(os.getcwd()))
 sys.path.append(workspace_root)
@@ -47,7 +47,7 @@ def test_backtest_fixed_weights():
     weights = prices.copy()
     weights[:] = 1
 
-    perf, _, _, _, _, _ = backtest(
+    perf, _, _, _, _, _ = bt.backtest(
         weights,
         prices,
         freq_day=1,
@@ -66,7 +66,7 @@ def test_backtest_external_validation():
     weights = prices.copy()
     weights[:] = 0.5
 
-    _, _, perf_sr, _, _, _ = backtest(
+    _, _, perf_sr, _, _, _ = bt.backtest(
         weights,
         prices,
         freq_day=1,
@@ -74,3 +74,20 @@ def test_backtest_external_validation():
         shift_periods=1,
     )
     assert perf_sr.loc["2022-10-01T00:00:00.000", ("portfolio", 0)].round(2) == -0.74
+
+
+def test_borrow():
+    weights = pd.Series([0.5, -2.5])
+    prices = pd.Series([10, 10])
+    rate = 0.1
+    periods = 10
+
+    act = bt._borrow(weights, prices, rate, periods)
+
+    # Case: zero leverage
+    assert act.iloc[0] == 0
+
+    # Case: weight with leverage
+    assert act.iloc[1].round(2) == 0.36
+
+    logging.info(act)

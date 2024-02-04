@@ -29,9 +29,9 @@ def flat_commission(weights: pd.DataFrame, prices: pd.DataFrame, fee: float) -> 
         fee: Fixed fee per trade.
 
     Returns:
-        Always returns fee.
+        Fixed fee per trade.
     """
-    diff = weights.abs().diff().fillna(0) != 0
+    diff = weights.fillna(0).abs().diff().fillna(0) != 0
     tx = diff.astype(int)
     commissions = tx * fee
     return commissions.fillna(0)
@@ -48,7 +48,7 @@ def pct_commission(weights: pd.DataFrame, prices: pd.DataFrame, fee: float) -> f
     Returns:
         Returns a percentage of the total value of the trade.
     """
-    size = weights.abs().diff().fillna(0)
+    size = weights.fillna(0).abs().diff().fillna(0)
     value = size * prices
     commissions = value * fee
     return commissions.fillna(0)
