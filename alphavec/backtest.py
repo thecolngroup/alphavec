@@ -332,9 +332,15 @@ def _borrow(
     ann_borrow_rate: float = 0,
     periods_per_year: int = DEFAULT_TRADING_DAYS_YEAR,
 ) -> pd.DataFrame | pd.Series:
+    """Calculate the borrowing costs for each position in the strategy."""
+    # Annual rate to per period rate
     rate = (1 + ann_borrow_rate) ** (1 / periods_per_year) - 1
+    # Position value from absolute weights and prices
     size = weights.abs().fillna(0)
     value = size * prices
+    # Leverage is defined as an absolute weight > 1
+    # Zero for all other positions
     lev = (size - 1).clip(lower=0)
+    # Costs are the product of the position value, rate and leverage
     costs = value * rate * lev
     return costs.fillna(0)
