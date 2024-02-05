@@ -158,7 +158,7 @@ def backtest(
     strat_valid_periods = weights.apply(
         lambda col: col.loc[col.first_valid_index() :].count()
     )
-    strat_days = strat_valid_periods / freq_day
+    strat_total_days = strat_valid_periods / freq_day
 
     # Evaluate the cost-aware strategy returns and key performance metrics
     # Use the shift arg to prevent look-ahead bias
@@ -175,7 +175,7 @@ def backtest(
             strat_rets.apply(_ann_vol, periods=freq_year),
             strat_rets.apply(_cagr, periods=freq_year),
             strat_rets.apply(_max_drawdown),
-            _trade_count(weights) / strat_days,
+            _trade_count(weights) / strat_total_days,
             strat_profit_cost_ratio,
         ],
         keys=[
@@ -310,7 +310,7 @@ def _max_drawdown(rets: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
 
 
 def _trade_count(weights: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
-    diff = weights.abs().diff().fillna(0) != 0
+    diff = weights.fillna(0).abs().diff().fillna(0) != 0
     tx = diff.astype(int)
     return tx.sum()
 
@@ -320,7 +320,7 @@ def _spread(
     prices: pd.DataFrame | pd.Series,
     spread_pct: float = 0,
 ) -> pd.DataFrame | pd.Series:
-    diff = weights.abs().diff().fillna(0) != 0
+    diff = weights.fillna(0).abs().diff().fillna(0) != 0
     tx = diff.astype(int)
     costs = tx * (spread_pct * 0.5) * prices
     return costs.fillna(0)
