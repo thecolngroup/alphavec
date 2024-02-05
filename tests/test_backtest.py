@@ -94,7 +94,7 @@ def test_spread():
 
     act = bt._spread(weights, prices, 0.02)
     logging.info(act)
-    assert act.iloc[2] == 3  # Case: zero leverage
+    assert act.iloc[2] == 0.3  # Case: spread cost
 
 
 def test_borrow():

@@ -322,7 +322,7 @@ def _spread(
 ) -> pd.DataFrame | pd.Series:
     size = weights.fillna(0).diff().abs()
     value = size * prices
-    costs = value * (spread_pct * 0.5) * prices
+    costs = value * (spread_pct * 0.5)
     return costs
 
 
