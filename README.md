@@ -35,3 +35,20 @@ The goal was to add just enough extra complexity to this basic formula in order 
 ## Usage
 
 See the notebook ```example.ipynb``` for a walkthrough of designing and testing a strategy using Alphavec.
+
+```python
+
+prices = load_asset_prices()
+weights = optimize_weights()
+
+result = backtest(
+    weights,
+    prices,
+    freq_day=1,
+    trading_days_year=365,
+    shift_periods=2,
+    commission_func=partial(pct_commission, fee=0.001),
+    ann_borrow_rate=0.05,
+    spread_pct=0.001,
+)
+```
