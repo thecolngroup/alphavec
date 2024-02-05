@@ -48,7 +48,7 @@ def pct_commission(weights: pd.DataFrame, prices: pd.DataFrame, fee: float) -> f
     Returns:
         Returns a percentage of the total value of the trade.
     """
-    size = weights.fillna(0).abs().diff().fillna(0)
+    size = weights.abs().diff().fillna(0)
     value = size * prices
     commissions = value * fee
     return commissions.fillna(0)
@@ -310,7 +310,7 @@ def _max_drawdown(rets: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
 
 
 def _trade_count(weights: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
-    diff = weights.fillna(0).abs().diff().fillna(0) != 0
+    diff = weights.abs().diff().fillna(0) != 0
     tx = diff.astype(int)
     return tx.sum()
 
@@ -320,7 +320,7 @@ def _spread(
     prices: pd.DataFrame | pd.Series,
     spread_pct: float = 0,
 ) -> pd.DataFrame | pd.Series:
-    diff = weights.fillna(0).abs().diff().fillna(0) != 0
+    diff = weights.abs().diff().fillna(0) != 0
     tx = diff.astype(int)
     costs = tx * (spread_pct * 0.5) * prices
     return costs.fillna(0)
