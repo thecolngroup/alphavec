@@ -76,6 +76,27 @@ def test_backtest_external_validation():
     assert perf_sr.loc["2022-10-01T00:00:00.000", ("portfolio", 0)].round(2) == -0.74
 
 
+def test_pct_commission():
+    weights = pd.Series([0, np.nan, 0, 1, -2.5])
+    prices = pd.Series([10, 10, 10, 10, 10])
+    act = bt.pct_commission(weights, prices, 0.1)
+
+    assert np.isnan(act.iloc[0])  # Case: no fee, NaN introduced due to diff()
+    assert act.iloc[1] == 0  # Case: no fee, zero to NaN
+    assert act.iloc[2] == 0  # Case: no fee, NaN to zero
+    assert act.iloc[3] == 1.0  # Case: fee for zero to 1
+    assert act.iloc[4] == 3.5  # Case: fee for 1 to -2.5
+
+
+def test_spread():
+    weights = pd.Series([np.nan, 0.5, -2.5])
+    prices = pd.Series([10, 10, 10])
+
+    act = bt._spread(weights, prices, 0.02)
+    logging.info(act)
+    assert act.iloc[2] == 3  # Case: zero leverage
+
+
 def test_borrow():
     weights = pd.Series([0.5, -2.5])
     prices = pd.Series([10, 10])
@@ -83,11 +104,5 @@ def test_borrow():
     periods = 10
 
     act = bt._borrow(weights, prices, rate, periods)
-
-    # Case: zero leverage
-    assert act.iloc[0] == 0
-
-    # Case: weight with leverage
-    assert act.iloc[1].round(2) == 0.36
-
-    logging.info(act)
+    assert act.iloc[0] == 0  # Case: zero leverage
+    assert act.iloc[1].round(2) == 0.36  # Case: weight with leverage

@@ -31,10 +31,10 @@ def flat_commission(weights: pd.DataFrame, prices: pd.DataFrame, fee: float) -> 
     Returns:
         Fixed fee per trade.
     """
-    diff = weights.fillna(0).abs().diff().fillna(0) != 0
+    diff = weights.fillna(0).diff().abs() != 0
     tx = diff.astype(int)
     commissions = tx * fee
-    return commissions.fillna(0)
+    return commissions
 
 
 def pct_commission(weights: pd.DataFrame, prices: pd.DataFrame, fee: float) -> float:
@@ -48,10 +48,10 @@ def pct_commission(weights: pd.DataFrame, prices: pd.DataFrame, fee: float) -> f
     Returns:
         Returns a percentage of the total value of the trade.
     """
-    size = weights.abs().diff().fillna(0)
+    size = weights.fillna(0).diff().abs()
     value = size * prices
     commissions = value * fee
-    return commissions.fillna(0)
+    return commissions
 
 
 def backtest(
@@ -310,7 +310,7 @@ def _max_drawdown(rets: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
 
 
 def _trade_count(weights: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
-    diff = weights.abs().diff().fillna(0) != 0
+    diff = weights.fillna(0).diff().abs() != 0
     tx = diff.astype(int)
     return tx.sum()
 
@@ -320,10 +320,10 @@ def _spread(
     prices: pd.DataFrame | pd.Series,
     spread_pct: float = 0,
 ) -> pd.DataFrame | pd.Series:
-    diff = weights.abs().diff().fillna(0) != 0
-    tx = diff.astype(int)
-    costs = tx * (spread_pct * 0.5) * prices
-    return costs.fillna(0)
+    size = weights.fillna(0).diff().abs()
+    value = size * prices
+    costs = value * (spread_pct * 0.5) * prices
+    return costs
 
 
 def _borrow(
@@ -343,4 +343,4 @@ def _borrow(
     lev = (size - 1).clip(lower=0)
     # Costs are the product of the position value, rate and leverage
     costs = value * rate * lev
-    return costs.fillna(0)
+    return costs
