@@ -154,7 +154,7 @@ def backtest(
     costs = cmn_costs + borrow_costs + spread_costs
 
     # Calc the number of valid trading periods for each asset
-    # to calculate correct number of trades
+    # to get correct number of trades
     strat_valid_periods = weights.apply(
         lambda col: col.loc[col.first_valid_index() :].count()
     )
@@ -166,7 +166,6 @@ def backtest(
     strat_rets = weights * (prices.pct_change() - costs).shift(-shift_periods)
     strat_rets = strat_rets.iloc[:-shift_periods] if shift_periods > 0 else strat_rets
     strat_cum = (1 + strat_rets).cumprod() - 1
-    strat_profit_cost_ratio = strat_cum.iloc[-1] / costs.sum()
     strat_perf = pd.concat(
         [
             strat_rets.apply(
@@ -176,7 +175,6 @@ def backtest(
             strat_rets.apply(_cagr, periods=freq_year),
             strat_rets.apply(_max_drawdown),
             _trade_count(weights) / strat_total_days,
-            strat_profit_cost_ratio,
         ],
         keys=[
             "annual_sharpe",
@@ -184,7 +182,6 @@ def backtest(
             "cagr",
             "max_drawdown,",
             "trades_per_day",
-            "profit_cost_ratio",
         ],
         axis=1,
     )
@@ -193,7 +190,6 @@ def backtest(
     port_rets = strat_rets.sum(axis=1)
     port_cum = strat_cum.sum(axis=1)
     port_costs = costs.sum().sum()
-    port_profit_cost_ratio = port_cum.iloc[-1] / port_costs if port_costs > 0 else None
     port_perf = pd.DataFrame(
         {
             "annual_sharpe": _ann_sharpe(
@@ -202,7 +198,6 @@ def backtest(
             "annual_volatility": _ann_vol(port_rets, periods=freq_year),
             "cagr": _cagr(port_rets, periods=freq_year),
             "max_drawdown": _max_drawdown(port_rets),
-            "profit_cost_ratio": port_profit_cost_ratio,
         },
         index=["portfolio"],
     )
