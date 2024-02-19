@@ -88,6 +88,15 @@ def test_pct_commission():
     assert act.iloc[4] == 3.5  # Case: fee for 1 to -2.5
 
 
+def test_turnover():
+    weights = pd.Series([0, np.nan, 0, 1, -2.5])
+    prices = pd.Series([10, 20, 40, 80, 40])
+    returns = weights * prices.pct_change()
+
+    act = bt._ann_turnover(returns, weights)
+    logging.info(act)
+
+
 def test_spread():
     weights = pd.Series([np.nan, 0.5, -2.5])
     prices = pd.Series([10, 10, 10])

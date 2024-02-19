@@ -153,19 +153,25 @@ def backtest(
     spread_costs = _spread(weights, prices, spread_pct) / prices
     costs = cmn_costs + borrow_costs + spread_costs
 
-    # Calc the number of valid trading periods for each asset
-    # to get correct number of trades
-    strat_valid_periods = weights.apply(
-        lambda col: col.loc[col.first_valid_index() :].count()
-    )
-    strat_total_days = strat_valid_periods / freq_day
-
     # Evaluate the cost-aware strategy returns and key performance metrics
     # Use the shift arg to prevent look-ahead bias
     # Truncate the returns to remove the empty intervals resulting from the shift
     strat_rets = weights * (prices.pct_change() - costs).shift(-shift_periods)
     strat_rets = strat_rets.iloc[:-shift_periods] if shift_periods > 0 else strat_rets
     strat_cum = (1 + strat_rets).cumprod() - 1
+
+    # Calc the number of valid trading periods for each asset
+    strat_valid_periods = weights.apply(
+        lambda col: col.loc[col.first_valid_index() :].count()
+    )
+    strat_total_days = strat_valid_periods / freq_day
+
+    # Calc the annual turnover for each asset
+    strat_ann_turnover = _turnover(weights, strat_rets) * (
+        trading_days_year / strat_total_days
+    )
+
+    # Evaluate the strategy asset-wise performance
     strat_perf = pd.concat(
         [
             strat_rets.apply(
@@ -174,6 +180,7 @@ def backtest(
             strat_rets.apply(_ann_vol, periods=freq_year),
             strat_rets.apply(_cagr, periods=freq_year),
             strat_rets.apply(_max_drawdown),
+            strat_ann_turnover,
             _trade_count(weights) / strat_total_days,
         ],
         keys=[
@@ -181,6 +188,7 @@ def backtest(
             "annual_volatility",
             "cagr",
             "max_drawdown,",
+            "annual_turnover",
             "trades_per_day",
         ],
         axis=1,
@@ -189,7 +197,9 @@ def backtest(
     # Evaluate the strategy portfolio performance
     port_rets = strat_rets.sum(axis=1)
     port_cum = strat_cum.sum(axis=1)
-    port_costs = costs.sum().sum()
+
+    port_ann_turnover = 1
+
     port_perf = pd.DataFrame(
         {
             "annual_sharpe": _ann_sharpe(
@@ -198,6 +208,7 @@ def backtest(
             "annual_volatility": _ann_vol(port_rets, periods=freq_year),
             "cagr": _cagr(port_rets, periods=freq_year),
             "max_drawdown": _max_drawdown(port_rets),
+            "annual_turnover": port_ann_turnover,
         },
         index=["portfolio"],
     )
@@ -302,6 +313,16 @@ def _max_drawdown(rets: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
     cummax = cumprod.cummax()
     max_drawdown = ((cummax - cumprod) / cummax).max()
     return max_drawdown
+
+
+def _turnover(
+    weights: pd.DataFrame | pd.Series,
+    rets: pd.DataFrame | pd.Series,
+) -> pd.Series | float:
+    diff = weights.fillna(0).diff().abs()
+    port = (1 + rets).cumprod() - 1
+    turnover = diff.sum() / ((1 + port.iloc[-1]) / 2)
+    return turnover
 
 
 def _trade_count(weights: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
