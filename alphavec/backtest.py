@@ -198,7 +198,8 @@ def backtest(
     port_rets = strat_rets.sum(axis=1)
     port_cum = strat_cum.sum(axis=1)
 
-    port_ann_turnover = 1
+    # Aproximate the portfolio turnover as the weighted average sum of the asset-wise turnover
+    port_ann_turnover = (strat_ann_turnover * weights.mean().abs()).sum()
 
     port_perf = pd.DataFrame(
         {
@@ -319,9 +320,25 @@ def _turnover(
     weights: pd.DataFrame | pd.Series,
     rets: pd.DataFrame | pd.Series,
 ) -> pd.Series | float:
-    diff = weights.fillna(0).diff().abs()
-    port = (1 + rets).cumprod() - 1
-    turnover = diff.sum() / ((1 + port.iloc[-1]) / 2)
+    """Calculate the turnover for each position in the strategy."""
+    # Assume capital of 1000
+    capital = 1000
+    # Calculate the delta of the weight between each interval
+    # Buy will be +ve, sell will be -ve
+    diff = weights.fillna(0).diff()
+    # Capital is fixed (uncompounded) for each interval so we can calculate the trade volume
+    # Sum the volume of the buy and sell trades
+    buy_volume = (diff.where(diff > 0, 0).abs() * capital).sum()
+    sell_volume = (diff.where(diff < 0, 0).abs() * capital).sum()
+    # Trade volume is the minimum of the buy and sell volumes
+    # Wrap in Series in case of scalar volume sum (when weights is a Series)
+    trade_volume = pd.concat(
+        [pd.Series(buy_volume), pd.Series(sell_volume)], axis=1
+    ).min(axis=1)
+    # Calculate the uncompounded returns to get the average of the portfolio
+    # Finally take the ratio of trading volume to mean portfolio value
+    equity = capital + (capital * rets.cumsum())
+    turnover = trade_volume / equity.mean()
     return turnover
 
 

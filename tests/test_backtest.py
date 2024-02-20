@@ -93,7 +93,8 @@ def test_turnover():
     prices = pd.Series([10, 20, 40, 80, 40])
     returns = weights * prices.pct_change()
 
-    act = bt._ann_turnover(returns, weights)
+    act = bt._turnover(weights, returns).squeeze()
+    assert act == 0.48
     logging.info(act)
 
 
