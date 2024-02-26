@@ -72,10 +72,9 @@ def backtest(
     Strategy is simulated using the given weights, returns, and cost parameters.
     Zero costs are calculated by default: no commission, no borrowing, no spread.
 
-    To prevent look-ahead bias by default the returns will be shifted 1 interval
-    relative to the weights during backtest.
+    To prevent look-ahead bias the returns will be shifted 1 interval by default relative to the weights during backtest.
 
-    Daily interval data is assumed by default.
+    Daily interval data is default.
     If you wish to use a different interval pass in the appropriate freq_day value
     e.g. if you are using hourly data in a 24-hour market such as crypto, you should pass in 24.
 
@@ -104,13 +103,13 @@ def backtest(
         ann_risk_free_rate: Annualized risk-free rate used to calculate Sharpe ratio. Defaults to 0.02.
 
     Returns:
-        A tuple containing five DataFrames that report backtest performance:
-            1. Asset-wise performance.
+        A tuple containing five data sets:
+            1. Asset-wise performance table.
             2. Asset-wise equity curve.
-            3. Asset-wise rolling annual Sharpe ratio.
-            4. Portfolio performance.
+            3. Asset-wise rolling annualized Sharpe.
+            4. Portfolio performance table.
             5. Portfolio returns.
-            5. Portoflio equity curve.
+            6. Portoflio equity curve.
     """
 
     assert weights.shape == prices.shape, "Weights and prices must have the same shape"
@@ -196,7 +195,7 @@ def backtest(
 
     # Evaluate the strategy portfolio performance
     port_rets = strat_rets.sum(axis=1)
-    port_cum = strat_cum.sum(axis=1)
+    port_cum = (1 + port_rets).cumprod() - 1
 
     # Aproximate the portfolio turnover as the weighted average sum of the asset-wise turnover
     port_ann_turnover = (strat_ann_turnover * weights.mean().abs()).sum()
