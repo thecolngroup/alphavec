@@ -46,7 +46,7 @@ def test_backtest_fixed_weights():
     weights = prices.copy()
     weights[:] = 1
 
-    perf, _, _, _, _, _ = bt.backtest(
+    perf, _, _, _, _ = bt.backtest(
         weights,
         prices,
         freq_day=1,
@@ -65,7 +65,7 @@ def test_backtest_external_validation():
     weights = prices.copy()
     weights[:] = 0.5
 
-    _, _, perf_sr, _, _, _ = bt.backtest(
+    _, _, perf_sr, _, _ = bt.backtest(
         weights,
         prices,
         freq_day=1,

@@ -70,13 +70,10 @@ def backtest(
     ann_borrow_rate: float = 0,
     spread_pct: float = 0,
     ann_risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
-) -> tuple[
-    pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series, pd.Series
-]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series]:
     """Backtest a trading strategy.
 
     Strategy is simulated using the given weights, prices, and cost parameters.
-    Stategy returns are compounded to calculate performance metrics.
     Zero costs are calculated by default: no commission, no borrowing, no spread.
 
     To prevent look-ahead bias the returns will be shifted 1 interval by default relative to the weights during backtest.
@@ -111,12 +108,11 @@ def backtest(
 
     Returns:
         A tuple containing five data sets:
-            1. Asset-wise performance table.
-            2. Asset-wise equity curve.
-            3. Asset-wise rolling annualized Sharpe.
-            4. Portfolio performance table.
-            5. Portfolio returns.
-            6. Portoflio equity curve.
+            1. Asset-wise performance table
+            2. Asset-wise equity curve (non-compounded)
+            3. Asset-wise rolling annualized Sharpe
+            4. Portfolio performance table
+            5. Portfolio returns
     """
 
     assert weights.shape == prices.shape, "Weights and prices must have the same shape"
@@ -133,7 +129,8 @@ def backtest(
     # asset and strategy performance metrics are comparable.
     asset_rets = prices.pct_change()
     asset_rets = asset_rets.iloc[:-shift_periods] if shift_periods > 0 else asset_rets
-    asset_cum = (1 + asset_rets).cumprod() - 1
+    asset_cum = asset_rets.cumsum()
+
     asset_perf = pd.concat(
         [
             _ann_sharpe(
@@ -164,7 +161,7 @@ def backtest(
     # Truncate the returns to remove the empty intervals resulting from the shift
     strat_rets = weights * (prices.pct_change() - costs).shift(-shift_periods)
     strat_rets = strat_rets.iloc[:-shift_periods] if shift_periods > 0 else strat_rets
-    strat_cum = (1 + strat_rets).cumprod() - 1
+    strat_cum = strat_rets.cumsum()
 
     # Calc the number of valid trading periods for each asset
     strat_valid_periods = weights.apply(
@@ -227,12 +224,18 @@ def backtest(
         axis=1,
     )
     perf_cum = pd.concat(
-        [asset_cum, strat_cum, port_cum],
-        keys=["asset", "strategy", "portfolio"],
+        [port_cum, asset_cum, strat_cum],
+        keys=["portfolio", "asset", "strategy"],
         axis=1,
     )
     perf_roll_sr = pd.concat(
         [
+            _ann_roll_sharpe(
+                port_rets,
+                window=freq_year,
+                periods=freq_year,
+                risk_free_rate=ann_risk_free_rate,
+            ),
             _ann_roll_sharpe(
                 asset_rets,
                 window=freq_year,
@@ -245,14 +248,8 @@ def backtest(
                 periods=freq_year,
                 risk_free_rate=ann_risk_free_rate,
             ),
-            _ann_roll_sharpe(
-                port_rets,
-                window=freq_year,
-                periods=freq_year,
-                risk_free_rate=ann_risk_free_rate,
-            ),
         ],
-        keys=["asset", "strategy", "portfolio"],
+        keys=["portfolio", "asset", "strategy"],
         axis=1,
     )
 
@@ -262,7 +259,6 @@ def backtest(
         perf_roll_sr,
         port_perf,
         port_rets,
-        port_cum,
     )
 
 
