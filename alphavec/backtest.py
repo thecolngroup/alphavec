@@ -137,7 +137,7 @@ def backtest(
                 asset_rets, periods=freq_year, risk_free_rate=ann_risk_free_rate
             ),
             _ann_vol(asset_rets, periods=freq_year),
-            _cagr(asset_rets, periods=freq_year),
+            asset_rets.apply(_cagr, periods=freq_year),
             _max_drawdown(asset_rets),
         ],
         keys=["annual_sharpe", "annual_volatility", "cagr", "max_drawdown"],
@@ -183,7 +183,7 @@ def backtest(
                 strat_rets, periods=freq_year, risk_free_rate=ann_risk_free_rate
             ),
             _ann_vol(strat_rets, periods=freq_year),
-            _cagr(strat_rets, periods=freq_year),
+            strat_rets.apply(_cagr, periods=freq_year),
             _max_drawdown(strat_rets),
             strat_ann_turnover,
             _trade_count(weights) / strat_total_days,
@@ -289,15 +289,12 @@ def _ann_roll_sharpe(
     return sr * np.sqrt(periods)
 
 
-def _cagr(
-    rets: pd.DataFrame | pd.Series, periods: int = DEFAULT_TRADING_DAYS_YEAR
-) -> pd.DataFrame | pd.Series | None:
+def _cagr(rets: pd.Series, periods: int = DEFAULT_TRADING_DAYS_YEAR) -> float:
     cumprod = (1 + rets).cumprod().dropna()
-    if len(cumprod) == 0:
-        return None
+    if cumprod.empty:
+        return None  # type: ignore
 
     final = cumprod.iloc[-1]
-
     n = len(cumprod) / periods
     cagr = final ** (1 / n) - 1
 
