@@ -127,7 +127,7 @@ def backtest(
     # Asset returns approximate a baseline buy and hold scenario
     # Truncate the asset wise returns to account for shifting to ensure the
     # asset and strategy performance metrics are comparable.
-    asset_rets = prices.pct_change()
+    asset_rets = prices.pct_change(fill_method=None)  # type: ignore
     asset_rets = asset_rets.iloc[:-shift_periods] if shift_periods > 0 else asset_rets
     asset_cum = asset_rets.cumsum()
 
@@ -159,7 +159,9 @@ def backtest(
     # Evaluate the cost-aware strategy returns and key performance metrics
     # Use the shift arg to prevent look-ahead bias
     # Truncate the returns to remove the empty intervals resulting from the shift
-    strat_rets = weights * (prices.pct_change() - costs).shift(-shift_periods)
+    strat_rets = weights * (prices.pct_change(fill_method=None) - costs).shift(  # type: ignore
+        -shift_periods
+    )
     strat_rets = strat_rets.iloc[:-shift_periods] if shift_periods > 0 else strat_rets
     strat_cum = strat_rets.cumsum()
 
@@ -199,7 +201,7 @@ def backtest(
 
     # Evaluate the strategy portfolio performance
     port_rets = strat_rets.sum(axis=1)
-    port_cum = (1 + port_rets).cumprod() - 1
+    port_cum = port_rets.cumsum()
 
     # Aproximate the portfolio turnover as the weighted average sum of the asset-wise turnover
     port_ann_turnover = (strat_ann_turnover * weights.mean().abs()).sum()
@@ -289,10 +291,10 @@ def _ann_roll_sharpe(
 
 def _cagr(
     rets: pd.DataFrame | pd.Series, periods: int = DEFAULT_TRADING_DAYS_YEAR
-) -> pd.DataFrame | pd.Series:
+) -> pd.DataFrame | pd.Series | None:
     cumprod = (1 + rets).cumprod().dropna()
     if len(cumprod) == 0:
-        return rets * 0
+        return None
 
     final = cumprod.iloc[-1]
 
