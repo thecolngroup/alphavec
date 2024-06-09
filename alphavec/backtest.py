@@ -129,7 +129,7 @@ def backtest(
     # asset and strategy performance metrics are comparable.
     asset_rets = prices.pct_change(fill_method=None)  # type: ignore
     asset_rets = asset_rets.iloc[:-shift_periods] if shift_periods > 0 else asset_rets
-    asset_cum = asset_rets.cumsum()
+    asset_cum = asset_rets.cumsum(skipna=False)
 
     asset_perf = pd.concat(
         [
