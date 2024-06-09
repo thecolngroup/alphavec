@@ -1,7 +1,6 @@
 import sys
 import os
 from pathlib import PurePath
-from functools import partial
 import logging
 
 import numpy as np
