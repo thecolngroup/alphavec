@@ -76,6 +76,7 @@ def backtest(
     """Backtest a trading strategy.
 
     Strategy is simulated using the given weights, prices, and cost parameters.
+    Stategy returns are compounded to calculate performance metrics.
     Zero costs are calculated by default: no commission, no borrowing, no spread.
 
     To prevent look-ahead bias the returns will be shifted 1 interval by default relative to the weights during backtest.
