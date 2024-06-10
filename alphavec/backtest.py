@@ -1,4 +1,4 @@
-from typing import Callable
+from typing import Callable, Tuple
 import numpy as np
 import pandas as pd
 
@@ -58,6 +58,10 @@ def pct_commission(
     return commissions
 
 
+DEFAULT_TRADING_DAYS_YEAR = 252
+DEFAULT_RISK_FREE_RATE = 0.02
+
+
 def backtest(
     weights: pd.DataFrame,
     prices: pd.DataFrame,
@@ -70,13 +74,13 @@ def backtest(
     ann_borrow_rate: float = 0,
     spread_pct: float = 0,
     ann_risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series]:
+) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series]:
     """Backtest a trading strategy.
 
     Strategy is simulated using the given weights, prices, and cost parameters.
     Zero costs are calculated by default: no commission, no borrowing, no spread.
 
-    To prevent look-ahead bias the returns will be shifted 1 interval by default relative to the weights during backtest.
+    To prevent look-ahead bias the returns are shifted 1 interval by default relative to the weights during backtest.
 
     Daily interval data is default.
     If you wish to use a different interval pass in the appropriate freq_day value
@@ -109,10 +113,10 @@ def backtest(
     Returns:
         A tuple containing five data sets:
             1. Asset-wise performance table
-            2. Asset-wise equity curve (non-compounded)
+            2. Asset-wise equity curve
             3. Asset-wise rolling annualized Sharpe
             4. Portfolio performance table
-            5. Portfolio returns
+            5. Portfolio log returns
     """
 
     assert weights.shape == prices.shape, "Weights and prices must have the same shape"
@@ -125,19 +129,18 @@ def backtest(
 
     # Backtest each asset so that we can assess the relative performance of the strategy
     # Asset returns approximate a baseline buy and hold scenario
-    # Truncate the asset wise returns to account for shifting to ensure the
-    # asset and strategy performance metrics are comparable.
+    # Truncate the asset returns to account for shifting to ensure the asset and strategy performance is comparable.
     asset_rets = _log_rets(prices)
     asset_rets = asset_rets.iloc[:-shift_periods] if shift_periods > 0 else asset_rets
-    asset_cum = asset_rets.cumsum(skipna=False)
+    asset_cum = _compounded_pct_return(asset_rets, skipna=False)
 
     asset_perf = pd.concat(
         [
             _ann_sharpe(
-                asset_rets, periods=freq_year, risk_free_rate=ann_risk_free_rate
+                asset_rets, freq_year=freq_year, ann_risk_free_rate=ann_risk_free_rate
             ),
-            _ann_vol(asset_rets, periods=freq_year),
-            asset_rets.apply(_cagr, freq_year=freq_year),
+            _ann_vol(asset_rets, freq_year=freq_year),
+            _cagr(asset_rets, freq_year=freq_year),
             _max_drawdown(asset_rets),
         ],
         keys=["annual_sharpe", "annual_volatility", "cagr", "max_drawdown"],
@@ -147,7 +150,7 @@ def backtest(
     # Backtest a cost-aware strategy as defined by the given weights:
     # 1. Calc costs
     # 2. Evaluate asset-wise performance
-    # 3. Evalute portfolio performance
+    # 3. Evaluate portfolio performance
 
     # Calc each cost component in percentage terms so we can
     # deduct them from the strategy returns
@@ -155,14 +158,14 @@ def backtest(
     borrow_costs = _borrow(weights, prices, ann_borrow_rate, freq_day) / prices
     spread_costs = _spread(weights, prices, spread_pct) / prices
     costs = cmn_costs + borrow_costs + spread_costs
-    log_costs = np.log(1 - costs)
 
     # Evaluate the cost-aware strategy returns and key performance metrics
     # Use the shift arg to prevent look-ahead bias
     # Truncate the returns to remove the empty intervals resulting from the shift
-    strat_rets = weights * _log_rets(prices).shift(-shift_periods)
+    strat_rets = _log_rets(prices) - costs
+    strat_rets = weights * strat_rets.shift(-shift_periods)
     strat_rets = strat_rets.iloc[:-shift_periods] if shift_periods > 0 else strat_rets
-    strat_cum = strat_rets.cumsum()
+    strat_cum = _compounded_pct_return(strat_rets)
 
     # Calc the number of valid trading periods for each asset
     strat_valid_periods = weights.apply(
@@ -179,38 +182,36 @@ def backtest(
     strat_perf = pd.concat(
         [
             _ann_sharpe(
-                strat_rets, periods=freq_year, risk_free_rate=ann_risk_free_rate
+                strat_rets, freq_year=freq_year, ann_risk_free_rate=ann_risk_free_rate
             ),
-            _ann_vol(strat_rets, periods=freq_year),
-            strat_rets.apply(_cagr, freq_year=freq_year),
+            _ann_vol(strat_rets, freq_year=freq_year),
+            _cagr(strat_rets, freq_year=freq_year),
             _max_drawdown(strat_rets),
             strat_ann_turnover,
-            _trade_count(weights) / strat_total_days,
         ],
         keys=[
             "annual_sharpe",
             "annual_volatility",
             "cagr",
-            "max_drawdown,",
+            "max_drawdown",
             "annual_turnover",
-            "trades_per_day",
         ],
         axis=1,
     )  # type: ignore
 
     # Evaluate the strategy portfolio performance
     port_rets = strat_rets.sum(axis=1)
-    port_cum = port_rets.cumsum()
+    port_cum = _compounded_pct_return(port_rets)
 
-    # Aproximate the portfolio turnover as the weighted average sum of the asset-wise turnover
+    # Approximate the portfolio turnover as the weighted average sum of the asset-wise turnover
     port_ann_turnover = (strat_ann_turnover * weights.mean().abs()).sum()
 
     port_perf = pd.DataFrame(
         {
             "annual_sharpe": _ann_sharpe(
-                port_rets, periods=freq_year, risk_free_rate=ann_risk_free_rate
+                port_rets, freq_year=freq_year, ann_risk_free_rate=ann_risk_free_rate
             ),
-            "annual_volatility": _ann_vol(port_rets, periods=freq_year),
+            "annual_volatility": _ann_vol(port_rets, freq_year=freq_year),
             "cagr": _cagr(port_rets, freq_year=freq_year),
             "max_drawdown": _max_drawdown(port_rets),
             "annual_turnover": port_ann_turnover,
@@ -234,20 +235,20 @@ def backtest(
             _ann_roll_sharpe(
                 port_rets,
                 window=freq_year,
-                periods=freq_year,
-                risk_free_rate=ann_risk_free_rate,
+                freq_year=freq_year,
+                ann_risk_free_rate=ann_risk_free_rate,
             ),
             _ann_roll_sharpe(
                 asset_rets,
                 window=freq_year,
-                periods=freq_year,
-                risk_free_rate=ann_risk_free_rate,
+                freq_year=freq_year,
+                ann_risk_free_rate=ann_risk_free_rate,
             ),
             _ann_roll_sharpe(
                 strat_rets,
                 window=freq_year,
-                periods=freq_year,
-                risk_free_rate=ann_risk_free_rate,
+                freq_year=freq_year,
+                ann_risk_free_rate=ann_risk_free_rate,
             ),
         ],
         keys=["portfolio", "asset", "strategy"],
@@ -264,55 +265,66 @@ def backtest(
 
 
 def _log_rets(prices: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
-    return prices.pct_change().apply(lambda x: np.log(1 + x))
+    return np.log(prices / prices.shift(1))  # type: ignore
+
+
+def _ann_to_period_rate(ann_rate: float, freq_year: int) -> float:
+    return (1 + ann_rate) ** (1 / freq_year) - 1
+
+
+def _compounded_pct_return(
+    log_rets: pd.DataFrame | pd.Series, skipna: bool = True
+) -> pd.DataFrame | pd.Series:
+    return np.exp(log_rets.cumsum(skipna=skipna)) - 1  # type: ignore
 
 
 def _ann_sharpe(
     rets: pd.DataFrame | pd.Series,
-    risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
-    periods: int = DEFAULT_TRADING_DAYS_YEAR,
-) -> pd.DataFrame | pd.Series:
-    rfr = (1 + risk_free_rate) ** (1 / periods) - 1
-    log_rfr = np.log(1 + rfr)
+    ann_risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
+    freq_year: int = DEFAULT_TRADING_DAYS_YEAR,
+) -> pd.Series:
+    """Calculate annualized Sharpe ratio."""
+    rfr = _ann_to_period_rate(ann_risk_free_rate, freq_year)
     mu = rets.mean()
     sigma = rets.std()
-    sr = (mu - log_rfr) / sigma
-    return sr * np.sqrt(periods)
+    sr = (mu - rfr) / sigma
+    return sr * np.sqrt(freq_year)
 
 
 def _ann_roll_sharpe(
     rets: pd.DataFrame | pd.Series,
-    risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
+    ann_risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
     window: int = DEFAULT_TRADING_DAYS_YEAR,
-    periods: int = DEFAULT_TRADING_DAYS_YEAR,
+    freq_year: int = DEFAULT_TRADING_DAYS_YEAR,
 ) -> pd.DataFrame | pd.Series:
-    rfr = (1 + risk_free_rate) ** (1 / periods) - 1
-    log_rfr = np.log(1 + rfr)
+    """Calculate rolling annualized Sharpe ratio."""
+    rfr = _ann_to_period_rate(ann_risk_free_rate, freq_year)
     mu = rets.rolling(window).mean()
     sigma = rets.rolling(window).std()
-    sr = (mu - log_rfr) / sigma
-    return sr * np.sqrt(periods)
+    sr = (mu - rfr) / sigma
+    return sr * np.sqrt(freq_year)
 
 
-def _cagr(log_rets: pd.Series, freq_year: int = DEFAULT_TRADING_DAYS_YEAR) -> float:
-    # log_rets = log_rets.dropna()
-    # if log_rets.empty:
-    #   return None  # type: ignore
-
+def _cagr(
+    log_rets: pd.DataFrame | pd.Series, freq_year: int = DEFAULT_TRADING_DAYS_YEAR
+) -> pd.Series | float:
+    """Calculate CAGR."""
     n_years = len(log_rets) / freq_year
     final = np.exp(log_rets.sum()) - 1
     cagr = (1 + final) ** (1 / n_years) - 1
-    return cagr
+    return cagr  # type: ignore
 
 
 def _ann_vol(
-    rets: pd.DataFrame | pd.Series, periods: int = DEFAULT_TRADING_DAYS_YEAR
-) -> pd.DataFrame | pd.Series:
-    return rets.std() * np.sqrt(periods)
+    rets: pd.DataFrame | pd.Series, freq_year: int = DEFAULT_TRADING_DAYS_YEAR
+) -> pd.Series:
+    """Calculate annualized volatility."""
+    return rets.std() * np.sqrt(freq_year)
 
 
-def _max_drawdown(rets: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
-    cumprod = rets.cumsum()
+def _max_drawdown(rets: pd.DataFrame | pd.Series) -> pd.Series | float:
+    """Calculate the max drawdown."""
+    cumprod = (1 + rets).cumprod()
     cummax = cumprod.cummax()
     max_drawdown = ((cummax - cumprod) / cummax).max()
     return max_drawdown
@@ -337,17 +349,11 @@ def _turnover(
     trade_volume = pd.concat(
         [pd.Series(buy_volume), pd.Series(sell_volume)], axis=1
     ).min(axis=1)
-    # Calculate the uncompounded returns to get the average of the portfolio
+    # Calculate the return on capital to get the average of the portfolio
     # Finally take the ratio of trading volume to mean portfolio value
     equity = capital + (capital * rets.cumsum())
     turnover = trade_volume / equity.mean()
     return turnover
-
-
-def _trade_count(weights: pd.DataFrame | pd.Series) -> int | pd.Series:
-    diff = weights.fillna(0).diff().abs() != 0
-    tx = diff.astype(int)
-    return tx.sum()
 
 
 def _spread(
@@ -355,6 +361,7 @@ def _spread(
     prices: pd.DataFrame | pd.Series,
     spread_pct: float = 0,
 ) -> pd.DataFrame | pd.Series:
+    """Calculate the spread costs for each position in the strategy."""
     size = weights.fillna(0).diff().abs()
     value = size * prices
     costs = value * (spread_pct * 0.5)
@@ -365,11 +372,10 @@ def _borrow(
     weights: pd.DataFrame | pd.Series,
     prices: pd.DataFrame | pd.Series,
     ann_borrow_rate: float = 0,
-    periods_per_year: int = DEFAULT_TRADING_DAYS_YEAR,
+    freq_year: int = DEFAULT_TRADING_DAYS_YEAR,
 ) -> pd.DataFrame | pd.Series:
     """Calculate the borrowing costs for each position in the strategy."""
-    # Annual rate to per period rate
-    rate = (1 + ann_borrow_rate) ** (1 / periods_per_year) - 1
+    rate = _ann_to_period_rate(ann_borrow_rate, freq_year)
     # Position value from absolute weights and prices
     size = weights.abs().fillna(0)
     value = size * prices
