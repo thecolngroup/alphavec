@@ -127,7 +127,7 @@ def backtest(
     # Asset returns approximate a baseline buy and hold scenario
     # Truncate the asset wise returns to account for shifting to ensure the
     # asset and strategy performance metrics are comparable.
-    asset_rets = prices.pct_change(fill_method=None)  # type: ignore
+    asset_rets = _log_rets(prices)
     asset_rets = asset_rets.iloc[:-shift_periods] if shift_periods > 0 else asset_rets
     asset_cum = asset_rets.cumsum(skipna=False)
 
@@ -137,7 +137,7 @@ def backtest(
                 asset_rets, periods=freq_year, risk_free_rate=ann_risk_free_rate
             ),
             _ann_vol(asset_rets, periods=freq_year),
-            asset_rets.apply(_cagr, periods=freq_year),
+            asset_rets.apply(_cagr, freq_year=freq_year),
             _max_drawdown(asset_rets),
         ],
         keys=["annual_sharpe", "annual_volatility", "cagr", "max_drawdown"],
@@ -155,13 +155,12 @@ def backtest(
     borrow_costs = _borrow(weights, prices, ann_borrow_rate, freq_day) / prices
     spread_costs = _spread(weights, prices, spread_pct) / prices
     costs = cmn_costs + borrow_costs + spread_costs
+    log_costs = np.log(1 - costs)
 
     # Evaluate the cost-aware strategy returns and key performance metrics
     # Use the shift arg to prevent look-ahead bias
     # Truncate the returns to remove the empty intervals resulting from the shift
-    strat_rets = weights * (prices.pct_change(fill_method=None) - costs).shift(  # type: ignore
-        -shift_periods
-    )
+    strat_rets = weights * _log_rets(prices).shift(-shift_periods)
     strat_rets = strat_rets.iloc[:-shift_periods] if shift_periods > 0 else strat_rets
     strat_cum = strat_rets.cumsum()
 
@@ -183,7 +182,7 @@ def backtest(
                 strat_rets, periods=freq_year, risk_free_rate=ann_risk_free_rate
             ),
             _ann_vol(strat_rets, periods=freq_year),
-            strat_rets.apply(_cagr, periods=freq_year),
+            strat_rets.apply(_cagr, freq_year=freq_year),
             _max_drawdown(strat_rets),
             strat_ann_turnover,
             _trade_count(weights) / strat_total_days,
@@ -212,7 +211,7 @@ def backtest(
                 port_rets, periods=freq_year, risk_free_rate=ann_risk_free_rate
             ),
             "annual_volatility": _ann_vol(port_rets, periods=freq_year),
-            "cagr": _cagr(port_rets, periods=freq_year),
+            "cagr": _cagr(port_rets, freq_year=freq_year),
             "max_drawdown": _max_drawdown(port_rets),
             "annual_turnover": port_ann_turnover,
         },
@@ -264,15 +263,20 @@ def backtest(
     )
 
 
+def _log_rets(prices: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
+    return prices.pct_change().apply(lambda x: np.log(1 + x))
+
+
 def _ann_sharpe(
     rets: pd.DataFrame | pd.Series,
     risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
     periods: int = DEFAULT_TRADING_DAYS_YEAR,
 ) -> pd.DataFrame | pd.Series:
-    ann_rfr = (1 + risk_free_rate) ** (1 / periods) - 1
+    rfr = (1 + risk_free_rate) ** (1 / periods) - 1
+    log_rfr = np.log(1 + rfr)
     mu = rets.mean()
     sigma = rets.std()
-    sr = (mu - ann_rfr) / sigma
+    sr = (mu - log_rfr) / sigma
     return sr * np.sqrt(periods)
 
 
@@ -282,22 +286,22 @@ def _ann_roll_sharpe(
     window: int = DEFAULT_TRADING_DAYS_YEAR,
     periods: int = DEFAULT_TRADING_DAYS_YEAR,
 ) -> pd.DataFrame | pd.Series:
-    ann_rfr = (1 + risk_free_rate) ** (1 / periods) - 1
+    rfr = (1 + risk_free_rate) ** (1 / periods) - 1
+    log_rfr = np.log(1 + rfr)
     mu = rets.rolling(window).mean()
     sigma = rets.rolling(window).std()
-    sr = (mu - ann_rfr) / sigma
+    sr = (mu - log_rfr) / sigma
     return sr * np.sqrt(periods)
 
 
-def _cagr(rets: pd.Series, periods: int = DEFAULT_TRADING_DAYS_YEAR) -> float:
-    cumprod = (1 + rets).cumprod().dropna()
-    if cumprod.empty:
-        return None  # type: ignore
+def _cagr(log_rets: pd.Series, freq_year: int = DEFAULT_TRADING_DAYS_YEAR) -> float:
+    # log_rets = log_rets.dropna()
+    # if log_rets.empty:
+    #   return None  # type: ignore
 
-    final = cumprod.iloc[-1]
-    n = len(cumprod) / periods
-    cagr = final ** (1 / n) - 1
-
+    n_years = len(log_rets) / freq_year
+    final = np.exp(log_rets.sum()) - 1
+    cagr = (1 + final) ** (1 / n_years) - 1
     return cagr
 
 
@@ -308,7 +312,7 @@ def _ann_vol(
 
 
 def _max_drawdown(rets: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
-    cumprod = (1 + rets).cumprod()
+    cumprod = rets.cumsum()
     cummax = cumprod.cummax()
     max_drawdown = ((cummax - cumprod) / cummax).max()
     return max_drawdown
