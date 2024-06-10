@@ -1,4 +1,4 @@
-from typing import Callable, Tuple
+from typing import Callable, Tuple, Union
 import numpy as np
 import pandas as pd
 
@@ -58,8 +58,20 @@ def pct_commission(
     return commissions
 
 
-DEFAULT_TRADING_DAYS_YEAR = 252
-DEFAULT_RISK_FREE_RATE = 0.02
+def nav(log_rets: Union[pd.DataFrame, pd.Series]) -> Union[pd.DataFrame, pd.Series]:
+    """Calculate the cumulative net asset value (NAV) from log returns.
+
+    Use this function in conjunction with log returns from the backtest.
+    E.G. to calcuate portfolio value based on an initial investment of 1000:
+    equity_in_currency_units = 1000 * nav(port_rets)
+
+    Args:
+        log_rets: Log returns of the assets in the portfolio.
+
+    Returns:
+        Cumulative net asset value (NAV) of the portfolio.
+    """
+    return np.exp(log_rets).cumprod()  # type: ignore
 
 
 def backtest(
@@ -124,7 +136,7 @@ def backtest(
         weights.columns.tolist() == prices.columns.tolist()
     ), "Weights and prices must have the same column (asset) names"
 
-    # Calc the number of data intervals in a trading year for annualised metrics
+    # Calc the number of data intervals in a trading year for annualized metrics
     freq_year = freq_day * trading_days_year
 
     # Backtest each asset so that we can assess the relative performance of the strategy
@@ -132,7 +144,7 @@ def backtest(
     # Truncate the asset returns to account for shifting to ensure the asset and strategy performance is comparable.
     asset_rets = _log_rets(prices)
     asset_rets = asset_rets.iloc[:-shift_periods] if shift_periods > 0 else asset_rets
-    asset_nav = _nav(asset_rets)
+    asset_nav = nav(asset_rets)
 
     asset_perf = pd.concat(
         [
@@ -165,7 +177,7 @@ def backtest(
     strat_rets = _log_rets(prices) - costs
     strat_rets = weights * strat_rets.shift(-shift_periods)
     strat_rets = strat_rets.iloc[:-shift_periods] if shift_periods > 0 else strat_rets
-    strat_nav = _nav(strat_rets)
+    strat_nav = nav(strat_rets)
 
     # Calc the number of valid trading periods for each asset
     strat_valid_periods = weights.apply(
@@ -201,7 +213,7 @@ def backtest(
 
     # Evaluate the strategy portfolio performance
     port_rets = strat_rets.sum(axis=1)
-    port_nav = _nav(port_rets)
+    port_nav = nav(port_rets)
 
     # Approximate the portfolio turnover as the weighted average sum of the asset-wise turnover
     port_ann_turnover = (strat_ann_turnover * weights.mean().abs()).sum()
@@ -266,7 +278,9 @@ def backtest(
     )
 
 
-def _log_rets(prices: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
+def _log_rets(
+    prices: Union[pd.DataFrame, pd.Series],
+) -> Union[pd.DataFrame, pd.Series]:
     """Calculate log returns from a price series."""
     return np.log(prices / prices.shift(1))  # type: ignore
 
@@ -276,15 +290,8 @@ def _ann_to_period_rate(ann_rate: float, periods_year: int) -> float:
     return (1 + ann_rate) ** (1 / periods_year) - 1
 
 
-def _nav(
-    log_rets: pd.DataFrame | pd.Series, initial: float = 1000
-) -> pd.DataFrame | pd.Series:
-    """Calculate the cumulative net asset value (NAV) from log returns."""
-    return np.exp(log_rets).cumprod()  # type: ignore
-
-
 def _ann_sharpe(
-    rets: pd.DataFrame | pd.Series,
+    rets: Union[pd.DataFrame, pd.Series],
     ann_risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
     freq_year: int = DEFAULT_TRADING_DAYS_YEAR,
 ) -> pd.Series:
@@ -297,11 +304,11 @@ def _ann_sharpe(
 
 
 def _ann_roll_sharpe(
-    rets: pd.DataFrame | pd.Series,
+    rets: Union[pd.DataFrame, pd.Series],
     ann_risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
     window: int = DEFAULT_TRADING_DAYS_YEAR,
     freq_year: int = DEFAULT_TRADING_DAYS_YEAR,
-) -> pd.DataFrame | pd.Series:
+) -> Union[pd.DataFrame, pd.Series]:
     """Calculate rolling annualized Sharpe ratio."""
     rfr = _ann_to_period_rate(ann_risk_free_rate, freq_year)
     mu = rets.rolling(window).mean()
@@ -311,15 +318,16 @@ def _ann_roll_sharpe(
 
 
 def _ann_vol(
-    rets: pd.DataFrame | pd.Series, freq_year: int = DEFAULT_TRADING_DAYS_YEAR
+    rets: Union[pd.DataFrame, pd.Series], freq_year: int = DEFAULT_TRADING_DAYS_YEAR
 ) -> pd.Series:
     """Calculate annualized volatility."""
     return rets.std() * np.sqrt(freq_year)
 
 
 def _cagr(
-    log_rets: pd.DataFrame | pd.Series, freq_year: int = DEFAULT_TRADING_DAYS_YEAR
-) -> pd.Series | float:
+    log_rets: Union[pd.DataFrame, pd.Series],
+    freq_year: int = DEFAULT_TRADING_DAYS_YEAR,
+) -> Union[pd.Series, float]:
     """Calculate CAGR."""
     n_years = len(log_rets) / freq_year
     final = np.exp(log_rets.sum()) - 1
@@ -327,17 +335,17 @@ def _cagr(
     return cagr  # type: ignore
 
 
-def _max_drawdown(log_rets: pd.DataFrame | pd.Series) -> pd.Series | float:
+def _max_drawdown(log_rets: Union[pd.DataFrame, pd.Series]) -> Union[pd.Series, float]:
     """Calculate the max drawdown in pct."""
-    nav = _nav(log_rets)
-    hwm = nav.cummax()
-    dd = (nav - hwm) / hwm
+    curve = nav(log_rets)
+    hwm = curve.cummax()
+    dd = (curve - hwm) / hwm
     return dd.min()  # type: ignore
 
 
 def _turnover(
-    weights: pd.DataFrame | pd.Series,
-    rets: pd.DataFrame | pd.Series,
+    weights: Union[pd.DataFrame, pd.Series],
+    log_rets: Union[pd.DataFrame, pd.Series],
 ) -> pd.Series | float:
     """Calculate the turnover for each position in the strategy."""
     # Assume capital of 1000
@@ -354,18 +362,18 @@ def _turnover(
     trade_volume = pd.concat(
         [pd.Series(buy_volume), pd.Series(sell_volume)], axis=1
     ).min(axis=1)
-    # Calculate the return on capital to get the average of the portfolio
+    # Calculate the average portfolio value
     # Finally take the ratio of trading volume to mean portfolio value
-    equity = capital + (capital * rets.cumsum())
-    turnover = trade_volume / equity.mean()
+    nav_mu = (capital * nav(log_rets)).mean()
+    turnover = trade_volume / nav_mu
     return turnover
 
 
 def _spread(
-    weights: pd.DataFrame | pd.Series,
-    prices: pd.DataFrame | pd.Series,
+    weights: Union[pd.DataFrame, pd.Series],
+    prices: Union[pd.DataFrame, pd.Series],
     spread_pct: float = 0,
-) -> pd.DataFrame | pd.Series:
+) -> Union[pd.DataFrame, pd.Series]:
     """Calculate the spread costs for each position in the strategy."""
     size = weights.fillna(0).diff().abs()
     value = size * prices
@@ -374,11 +382,11 @@ def _spread(
 
 
 def _borrow(
-    weights: pd.DataFrame | pd.Series,
-    prices: pd.DataFrame | pd.Series,
+    weights: Union[pd.DataFrame, pd.Series],
+    prices: Union[pd.DataFrame, pd.Series],
     ann_borrow_rate: float = 0,
     freq_year: int = DEFAULT_TRADING_DAYS_YEAR,
-) -> pd.DataFrame | pd.Series:
+) -> Union[pd.DataFrame, pd.Series]:
     """Calculate the borrowing costs for each position in the strategy."""
     rate = _ann_to_period_rate(ann_borrow_rate, freq_year)
     # Position value from absolute weights and prices

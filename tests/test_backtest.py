@@ -92,10 +92,10 @@ def test_pct_commission():
 def test_turnover():
     weights = pd.Series([0, np.nan, 0, 1, -2.5])
     prices = pd.Series([10, 20, 40, 80, 40])
-    returns = weights * prices.pct_change()
+    returns = weights * bt._log_rets(prices)
 
-    act = bt._turnover(weights, returns).squeeze()
-    assert act == 0.48
+    act = bt._turnover(weights, returns).squeeze().round(2)
+    assert act == 0.21
     logging.info(act)
 
 
