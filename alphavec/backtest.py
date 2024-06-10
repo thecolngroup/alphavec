@@ -113,10 +113,10 @@ def backtest(
     Returns:
         A tuple containing five data sets:
             1. Asset-wise performance table
-            2. Asset-wise equity curve
-            3. Asset-wise rolling annualized Sharpe
+            2. Asset-wise equity curves
+            3. Asset-wise rolling annualized Sharpes
             4. Portfolio performance table
-            5. Portfolio log returns
+            5. Portfolio (log) returns
     """
 
     assert weights.shape == prices.shape, "Weights and prices must have the same shape"
@@ -132,7 +132,7 @@ def backtest(
     # Truncate the asset returns to account for shifting to ensure the asset and strategy performance is comparable.
     asset_rets = _log_rets(prices)
     asset_rets = asset_rets.iloc[:-shift_periods] if shift_periods > 0 else asset_rets
-    asset_cum = _compounded_pct_return(asset_rets, skipna=False)
+    asset_nav = _nav(asset_rets)
 
     asset_perf = pd.concat(
         [
@@ -142,10 +142,10 @@ def backtest(
             _ann_vol(asset_rets, freq_year=freq_year),
             _cagr(asset_rets, freq_year=freq_year),
             _max_drawdown(asset_rets),
-        ],
+        ],  # type: ignore
         keys=["annual_sharpe", "annual_volatility", "cagr", "max_drawdown"],
         axis=1,
-    )  # type: ignore
+    )
 
     # Backtest a cost-aware strategy as defined by the given weights:
     # 1. Calc costs
@@ -165,7 +165,7 @@ def backtest(
     strat_rets = _log_rets(prices) - costs
     strat_rets = weights * strat_rets.shift(-shift_periods)
     strat_rets = strat_rets.iloc[:-shift_periods] if shift_periods > 0 else strat_rets
-    strat_cum = _compounded_pct_return(strat_rets)
+    strat_nav = _nav(strat_rets)
 
     # Calc the number of valid trading periods for each asset
     strat_valid_periods = weights.apply(
@@ -188,7 +188,7 @@ def backtest(
             _cagr(strat_rets, freq_year=freq_year),
             _max_drawdown(strat_rets),
             strat_ann_turnover,
-        ],
+        ],  # type: ignore
         keys=[
             "annual_sharpe",
             "annual_volatility",
@@ -197,11 +197,11 @@ def backtest(
             "annual_turnover",
         ],
         axis=1,
-    )  # type: ignore
+    )
 
     # Evaluate the strategy portfolio performance
     port_rets = strat_rets.sum(axis=1)
-    port_cum = _compounded_pct_return(port_rets)
+    port_nav = _nav(port_rets)
 
     # Approximate the portfolio turnover as the weighted average sum of the asset-wise turnover
     port_ann_turnover = (strat_ann_turnover * weights.mean().abs()).sum()
@@ -225,11 +225,13 @@ def backtest(
         keys=["asset", "strategy"],
         axis=1,
     )
-    perf_cum = pd.concat(
-        [port_cum, asset_cum, strat_cum],
+
+    perf_nav = pd.concat(
+        [port_nav, asset_nav, strat_nav],
         keys=["portfolio", "asset", "strategy"],
         axis=1,
-    )
+    ).rename(columns={0: "NAV"})
+
     perf_roll_sr = pd.concat(
         [
             _ann_roll_sharpe(
@@ -253,11 +255,11 @@ def backtest(
         ],
         keys=["portfolio", "asset", "strategy"],
         axis=1,
-    )
+    ).rename(columns={0: "NAV"})
 
     return (
         perf,
-        perf_cum,
+        perf_nav,
         perf_roll_sr,
         port_perf,
         port_rets,
@@ -265,17 +267,20 @@ def backtest(
 
 
 def _log_rets(prices: pd.DataFrame | pd.Series) -> pd.DataFrame | pd.Series:
+    """Calculate log returns from a price series."""
     return np.log(prices / prices.shift(1))  # type: ignore
 
 
-def _ann_to_period_rate(ann_rate: float, freq_year: int) -> float:
-    return (1 + ann_rate) ** (1 / freq_year) - 1
+def _ann_to_period_rate(ann_rate: float, periods_year: int) -> float:
+    """Calculate the annualized rate given the return periodocity."""
+    return (1 + ann_rate) ** (1 / periods_year) - 1
 
 
-def _compounded_pct_return(
-    log_rets: pd.DataFrame | pd.Series, skipna: bool = True
+def _nav(
+    log_rets: pd.DataFrame | pd.Series, initial: float = 1000
 ) -> pd.DataFrame | pd.Series:
-    return np.exp(log_rets.cumsum(skipna=skipna)) - 1  # type: ignore
+    """Calculate the cumulative net asset value (NAV) from log returns."""
+    return np.exp(log_rets).cumprod()  # type: ignore
 
 
 def _ann_sharpe(
@@ -305,6 +310,13 @@ def _ann_roll_sharpe(
     return sr * np.sqrt(freq_year)
 
 
+def _ann_vol(
+    rets: pd.DataFrame | pd.Series, freq_year: int = DEFAULT_TRADING_DAYS_YEAR
+) -> pd.Series:
+    """Calculate annualized volatility."""
+    return rets.std() * np.sqrt(freq_year)
+
+
 def _cagr(
     log_rets: pd.DataFrame | pd.Series, freq_year: int = DEFAULT_TRADING_DAYS_YEAR
 ) -> pd.Series | float:
@@ -315,19 +327,12 @@ def _cagr(
     return cagr  # type: ignore
 
 
-def _ann_vol(
-    rets: pd.DataFrame | pd.Series, freq_year: int = DEFAULT_TRADING_DAYS_YEAR
-) -> pd.Series:
-    """Calculate annualized volatility."""
-    return rets.std() * np.sqrt(freq_year)
-
-
-def _max_drawdown(rets: pd.DataFrame | pd.Series) -> pd.Series | float:
-    """Calculate the max drawdown."""
-    cumprod = (1 + rets).cumprod()
-    cummax = cumprod.cummax()
-    max_drawdown = ((cummax - cumprod) / cummax).max()
-    return max_drawdown
+def _max_drawdown(log_rets: pd.DataFrame | pd.Series) -> pd.Series | float:
+    """Calculate the max drawdown in pct."""
+    nav = _nav(log_rets)
+    hwm = nav.cummax()
+    dd = (nav - hwm) / hwm
+    return dd.min()  # type: ignore
 
 
 def _turnover(

@@ -72,7 +72,9 @@ def test_backtest_external_validation():
         trading_days_year=252,
         shift_periods=1,
     )
-    assert perf_sr.loc["2022-10-01T00:00:00.000", ("portfolio", 0)].round(2) == -1.07
+    assert (
+        perf_sr.loc["2022-10-01T00:00:00.000", ("portfolio", "NAV")].round(2) == -1.07
+    )
 
 
 def test_pct_commission():
