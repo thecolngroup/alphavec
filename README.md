@@ -30,7 +30,7 @@ The goal was to add just enough extra complexity to this basic formula in order 
 
 ## Install
 
-``` pip install git+https://github.com/thecolngroup/alphavec@main```
+``` pip install git+https://github.com/breaded-xyz/alphavec@main```
 
 ## Usage
 
