@@ -288,7 +288,7 @@ def backtest(
     )
 
 
-def random_sample_backtest(
+def random_period_backtest(
     weights: pd.DataFrame,
     prices: pd.DataFrame,
     backtest_func: Callable[
@@ -300,7 +300,7 @@ def random_sample_backtest(
     allow_nan: bool = False,
     seed: int = 1,
 ) -> pd.DataFrame:
-    """Random sample backtest samples contiguous periods to evaluate the robustness of a strategy.
+    """Random period backtest samples random contiguous periods to evaluate the robustness of a strategy.
 
     Args:
         weights: Weights of the assets in the portfolio (see backtest).

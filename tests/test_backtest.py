@@ -120,7 +120,7 @@ def test_borrow():
     assert act.iloc[1].round(2) == 0.36  # Case: weight with leverage
 
 
-def test_random_sample_backtest():
+def test_random_period_backtest():
 
     prices = load_close_prices(["ETHUSDT", "BTCUSDT"])
     weights = prices.copy()
@@ -133,7 +133,7 @@ def test_random_sample_backtest():
         shift_periods=1,
     )
 
-    results = vbt.random_sample_backtest(
+    results = vbt.random_period_backtest(
         weights,
         prices,
         bt_func,
