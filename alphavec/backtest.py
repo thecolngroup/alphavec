@@ -288,14 +288,14 @@ def backtest(
     )
 
 
-def random_period_backtest(
+def random_period_test(
     weights: pd.DataFrame,
     prices: pd.DataFrame,
     backtest_func: Callable[
         [pd.DataFrame, pd.DataFrame],
         Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series],
     ],
-    backtest_n: int = 1000,
+    test_n: int = 1000,
     sample_length: int = DEFAULT_TRADING_DAYS_YEAR,
     allow_nan: bool = False,
     seed: int = 1,
@@ -306,7 +306,7 @@ def random_period_backtest(
         weights: Weights of the assets in the portfolio (see backtest).
         prices: Prices of the assets in the portfolio (see backtest).
         backtest_func: Function to backtest the strategy that accepts weights and prices.
-        backtest_n: Number of random contiguous samples to test. Defaults to 1000.
+        test_n: Number of random contiguous samples to test. Defaults to 1000.
         sample_length: Length in periods of each contigous sample. Defaults to DEFAULT_TRADING_DAYS_YEAR.
         allow_nan: Rejects a sample if NaN is found in weights or prices. Defaults to False.
         seed: Seed to reproduce results. Defaults to 1.
@@ -324,7 +324,7 @@ def random_period_backtest(
     results = {}
     rs = RandomState(MT19937(SeedSequence(seed)))
 
-    for i in range(backtest_n):
+    for i in range(test_n):
         start = rs.randint(0, len(prices) - sample_length)
 
         sample_prices = prices.iloc[start : start + sample_length].copy()
@@ -341,14 +341,14 @@ def random_period_backtest(
     return pd.concat(results).droplevel(1)
 
 
-def random_noise_backtest(
+def random_noise_test(
     weights: pd.DataFrame,
     prices: pd.DataFrame,
     backtest_func: Callable[
         [pd.DataFrame, pd.DataFrame],
         Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series],
     ],
-    backtest_n: int = 1000,
+    test_n: int = 1000,
     noise_gaussian_mean: float = 0,
     noise_gaussian_std_dev: float = 0.01,
     seed: int = 1,
@@ -359,9 +359,10 @@ def random_noise_backtest(
         weights: Weights of the assets in the portfolio (see backtest).
         prices: Prices of the assets in the portfolio (see backtest).
         backtest_func: Function to backtest the strategy that accepts weights and prices.
-        backtest_n: Number of samples to test. Defaults to 1000.
+        test_n: Number of samples to test. Defaults to 1000.
         noise_gaussian_mean: float = 0,
         noise_gaussian_std_dev: float = 0.01,
+        seed: Seed to reproduce results. Defaults to 1.
 
     Returns:
         Dataframe of portfolio performance for each sample.
@@ -373,7 +374,7 @@ def random_noise_backtest(
 
     rs = RandomState(MT19937(SeedSequence(seed)))
 
-    for i in range(backtest_n):
+    for i in range(test_n):
 
         noisey_prices = _perturb_with_gaussian_noise(
             prices,
@@ -385,6 +386,30 @@ def random_noise_backtest(
         results[i] = port_perf
 
     return pd.concat(results).droplevel(1)
+
+
+def monte_carlo_test(
+    rets: pd.Series, n_test: int = 1000, seed: int = 1
+) -> pd.DataFrame:
+    """Monte Carlo test to evaluate the robustness of a strategy.
+
+    Args:
+        rets: Strategy returns.
+        n: Number of simulations. Defaults to 1000.
+        seed: Seed to reproduce results. Defaults to 1.
+
+    Returns:
+        Dataframe of simulated returns.
+    """
+
+    results = {}
+    rs = RandomState(MT19937(SeedSequence(seed)))
+
+    for i in range(n_test):
+        sampled_rets = rs.choice(rets, len(rets))
+        results[i] = pd.Series(sampled_rets, index=rets.index)
+
+    return pd.concat(results, axis=1)
 
 
 def _perturb_with_gaussian_noise(

@@ -133,11 +133,11 @@ def test_random_period_backtest():
         shift_periods=1,
     )
 
-    results = vbt.random_period_backtest(
+    results = vbt.random_period_test(
         weights,
         prices,
         bt_func,
-        backtest_n=100,
+        test_n=100,
         sample_length=90,
         allow_nan=True,
         seed=1,
@@ -164,17 +164,32 @@ def test_random_noise_backtest():
         shift_periods=1,
     )
 
-    results = vbt.random_noise_backtest(
+    results = vbt.random_noise_test(
         weights,
         prices,
         bt_func,
-        backtest_n=100,
+        test_n=100,
         seed=1,
     )
 
     assert results is not None
 
     stats = results["annual_sharpe"].describe()
+    logging.info(stats)
+
+    assert stats["mean"] > 0
+
+
+def test_montecarlo():
+    prices = load_close_prices(["BTCUSDT"])
+    rets = vbt._log_rets(prices).squeeze()
+
+    results = vbt.monte_carlo_test(rets, n_test=100, seed=1)
+    assert results is not None
+    simulated_ann_sharpes = vbt._ann_sharpe(
+        results, ann_risk_free_rate=0, freq_year=365
+    )
+    stats = simulated_ann_sharpes.describe()
     logging.info(stats)
 
     assert stats["mean"] > 0
