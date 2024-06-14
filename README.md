@@ -38,17 +38,21 @@ See the notebook ```example.ipynb``` for a walkthrough of designing and testing 
 
 ```python
 
-prices = load_asset_prices()
-weights = optimize_weights()
+from functools import partial
+import alphavec as av
 
-result = backtest(
+prices = load_asset_prices()
+weights = generate_weights()
+
+result = av.backtest(
     weights,
     prices,
     freq_day=1,
     trading_days_year=365,
-    shift_periods=2,
-    commission_func=partial(pct_commission, fee=0.001),
-    ann_borrow_rate=0.05,
+    shift_periods=1,
+    commission_func=partial(av.pct_commission, fee=0.001),
     spread_pct=0.001,
+    ann_borrow_rate=0.05,
+    ann_risk_free_rate=0.002
 )
 ```

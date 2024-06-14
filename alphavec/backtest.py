@@ -92,31 +92,34 @@ def backtest(
     Strategy is simulated using the given weights, prices, and cost parameters.
     Zero costs are calculated by default: no commission, no borrowing, no spread.
 
-    To prevent look-ahead bias the returns are shifted 1 interval by default relative to the weights during backtest.
+    To prevent look-ahead bias by default the returns are shifted 1 period relative to the weights during backtest.
+    The default shift assumes close prices and an ability to trade at the close,
+    this is reasonable for 24 hour markets such as crypto, but not for traditional markets with fixed trading hours.
+    For traditional markets, you should set shift periods to at least 2.
 
-    Daily interval data is default.
-    If you wish to use a different interval pass in the appropriate freq_day value
-    e.g. if you are using hourly data in a 24-hour market such as crypto, you should pass in 24.
+    Daily periods are default.
+    If your prices and weights have a different periodocity pass in the appropriate freq_day value.
+    E.G. for 8 hour periods in a 24-hour market such as crypto, you should pass in 3.
 
     Performance is reported both asset-wise and as a portfolio.
     Annualized metrics use the default trading days per year of 252.
 
     Args:
         weights:
-            Weights (-1 to 1) of the assets in the strategy at each interval.
-            Each column should be the weights for a specific asset, with the column name being the asset name.
-            Column names should match returns.
+            Weights (e.g. -1 to +1) of the assets at each period.
+            Each column should be the weights for a specific asset, with column name = asset name.
+            Column names should match prices.
             Index should be a DatetimeIndex.
-            Shape must match returns.
+            Shape must match prices.
         prices:
-            Prices of the assets at each interval used to calculate returns and costs.
-            Each column should be the mark prices for a specific asset, with the column name being the asset name.
+            Prices of the assets at each period used to calculate returns and costs.
+            Each column should be the mark prices for a specific asset, with column name = asset name.
             Column names should match weights.
             Index should be a DatetimeIndex.
             Shape must match weights.
-        freq_day: Number of strategy intervals in a trading day. Defaults to 1 for daily data.
+        freq_day: Number of periods in a trading day. Defaults to 1 for daily data.
         trading_days_year: Number of trading days in a year. Defaults to 252.
-        shift_periods: Positive integer for number of intervals to shift returns relative to weights. Defaults to 1.
+        shift_periods: Positive integer for n periods to shift returns relative to weights. Defaults to 1.
         commission_func: Function to calculate commission cost. Defaults to zero_commission.
         ann_borrow_rate: Annualized borrowing rate applied when asset weight > 1. Defaults to 0.
         spread_pct: Spread cost percentage. Defaults to 0.
