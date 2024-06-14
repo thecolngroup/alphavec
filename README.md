@@ -18,6 +18,8 @@ Alphavec is a lightning fast, minimalist, cost-aware vectorized backtest engine 
 
 The backtest input is the natural output of a typical quant research process - a time series of portfolio weights. You simply provide a dataframe of strategy weights and a dataframe of asset prices, along with some optional cost parameters and the backtest returns a streamlined performance report with insight into the key metrics of sharpe, volatility, CAGR, drawdown et al.
 
+In addition, onvenience functions are included for robustness checking such as sampling of random contiguous periods and adding noise to a price series.
+
 ## Rationale
 
 Alphavec is an antidote to the various bloated and complex backtest frameworks.

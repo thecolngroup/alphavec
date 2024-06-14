@@ -1,12 +1,13 @@
 import sys
 import os
+from functools import partial
 from pathlib import PurePath
 import logging
 
 import numpy as np
 import pandas as pd
 
-import alphavec.backtest as bt
+import alphavec.backtest as vbt
 
 workspace_root = str(PurePath(os.getcwd()))
 sys.path.append(workspace_root)
@@ -46,7 +47,7 @@ def test_backtest_fixed_weights():
     weights = prices.copy()
     weights[:] = 1
 
-    perf, _, _, _, _ = bt.backtest(
+    perf, _, _, _, _ = vbt.backtest(
         weights,
         prices,
         freq_day=1,
@@ -65,7 +66,7 @@ def test_backtest_external_validation():
     weights = prices.copy()
     weights[:] = 0.5
 
-    _, _, perf_sr, _, _ = bt.backtest(
+    _, _, perf_sr, _, _ = vbt.backtest(
         weights,
         prices,
         freq_day=1,
@@ -80,7 +81,7 @@ def test_backtest_external_validation():
 def test_pct_commission():
     weights = pd.Series([0, np.nan, 0, 1, -2.5])
     prices = pd.Series([10, 10, 10, 10, 10])
-    act = bt.pct_commission(weights, prices, 0.1)
+    act = vbt.pct_commission(weights, prices, 0.1)
 
     assert np.isnan(act.iloc[0])  # Case: no fee, NaN introduced due to diff()
     assert act.iloc[1] == 0  # Case: no fee, zero to NaN
@@ -92,9 +93,9 @@ def test_pct_commission():
 def test_turnover():
     weights = pd.Series([0, np.nan, 0, 1, -2.5])
     prices = pd.Series([10, 20, 40, 80, 40])
-    returns = weights * bt._log_rets(prices)
+    returns = weights * vbt._log_rets(prices)
 
-    act = bt._turnover(weights, returns).squeeze().round(2)
+    act = vbt._turnover(weights, returns).squeeze().round(2)
     assert act == 0.21
     logging.info(act)
 
@@ -103,7 +104,7 @@ def test_spread():
     weights = pd.Series([np.nan, 0.5, -2.5])
     prices = pd.Series([10, 10, 10])
 
-    act = bt._spread(weights, prices, 0.02)
+    act = vbt._spread(weights, prices, 0.02)
     logging.info(act)
     assert act.iloc[2] == 0.3  # Case: spread cost
 
@@ -114,6 +115,66 @@ def test_borrow():
     rate = 0.1
     periods = 10
 
-    act = bt._borrow(weights, prices, rate, periods)
+    act = vbt._borrow(weights, prices, rate, periods)
     assert act.iloc[0] == 0  # Case: zero leverage
     assert act.iloc[1].round(2) == 0.36  # Case: weight with leverage
+
+
+def test_random_sample_backtest():
+
+    prices = load_close_prices(["ETHUSDT", "BTCUSDT"])
+    weights = prices.copy()
+    weights[:] = 0.5
+
+    bt_func = partial(
+        vbt.backtest,
+        freq_day=1,
+        trading_days_year=365,
+        shift_periods=1,
+    )
+
+    results = vbt.random_sample_backtest(
+        weights,
+        prices,
+        bt_func,
+        backtest_n=100,
+        sample_length=90,
+        allow_nan=True,
+        seed=1,
+    )
+
+    assert results is not None
+
+    stats = results["annual_sharpe"].describe()
+    logging.info(stats)
+
+    assert stats["mean"] > 0
+
+
+def test_random_noise_backtest():
+
+    prices = load_close_prices(["ETHUSDT", "BTCUSDT"])
+    weights = prices.copy()
+    weights[:] = 0.5
+
+    bt_func = partial(
+        vbt.backtest,
+        freq_day=1,
+        trading_days_year=365,
+        shift_periods=1,
+    )
+
+    results = vbt.random_noise_backtest(
+        weights,
+        prices,
+        bt_func,
+        backtest_n=100,
+        seed=1,
+    )
+
+    assert results is not None
+
+    stats = results["annual_sharpe"].describe()
+    logging.info(stats)
+
+    assert stats["mean"] > 0

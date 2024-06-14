@@ -1,7 +1,14 @@
+"""Backtest module for evaluating trading strategies."""
+
+import logging
 from typing import Callable, Tuple, Union
+
 import numpy as np
+from numpy.random import MT19937
+from numpy.random import RandomState, SeedSequence
 import pandas as pd
 
+logger = logging.getLogger(__name__)
 
 DEFAULT_TRADING_DAYS_YEAR = 252
 DEFAULT_RISK_FREE_RATE = 0.02
@@ -279,6 +286,119 @@ def backtest(
         port_perf,
         port_rets,
     )
+
+
+def random_sample_backtest(
+    weights: pd.DataFrame,
+    prices: pd.DataFrame,
+    backtest_func: Callable[
+        [pd.DataFrame, pd.DataFrame],
+        Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series],
+    ],
+    backtest_n: int = 1000,
+    sample_length: int = DEFAULT_TRADING_DAYS_YEAR,
+    allow_nan: bool = False,
+    seed: int = 1,
+) -> pd.DataFrame:
+    """Random sample backtest samples contiguous periods to evaluate the robustness of a strategy.
+
+    Args:
+        weights: Weights of the assets in the portfolio (see backtest).
+        prices: Prices of the assets in the portfolio (see backtest).
+        backtest_func: Function to backtest the strategy that accepts weights and prices.
+        backtest_n: Number of random contiguous samples to test. Defaults to 1000.
+        sample_length: Length in periods of each contigous sample. Defaults to DEFAULT_TRADING_DAYS_YEAR.
+        allow_nan: Rejects a sample if NaN is found in weights or prices. Defaults to False.
+        seed: Seed to reproduce results. Defaults to 1.
+
+    Returns:
+        Dataframe of portfolio performance for each sample.
+    """
+
+    assert weights.shape == prices.shape, "Weights and prices must have the same shape"
+
+    assert (
+        len(prices) > sample_length
+    ), "Weights and prices must have more than sample_length periods"
+
+    results = {}
+    rs = RandomState(MT19937(SeedSequence(seed)))
+
+    for i in range(backtest_n):
+        start = rs.randint(0, len(prices) - sample_length)
+
+        sample_prices = prices.iloc[start : start + sample_length].copy()
+        sample_weights = weights.loc[sample_prices.index].copy()
+
+        if not allow_nan:
+            if sample_prices.isna().any().any() or sample_weights.isna().any().any():
+                logging.debug(f"Skipping sample {i} due to NaN values")
+                continue
+
+        _, _, _, port_perf, _ = backtest_func(sample_weights, sample_prices)
+        results[i] = port_perf
+
+    return pd.concat(results).droplevel(1)
+
+
+def random_noise_backtest(
+    weights: pd.DataFrame,
+    prices: pd.DataFrame,
+    backtest_func: Callable[
+        [pd.DataFrame, pd.DataFrame],
+        Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series],
+    ],
+    backtest_n: int = 1000,
+    noise_gaussian_mean: float = 0,
+    noise_gaussian_std_dev: float = 0.01,
+    seed: int = 1,
+) -> pd.DataFrame:
+    """Random noise backtest adds noise to the price series to evaluate the robustness of a strategy.
+
+    Args:
+        weights: Weights of the assets in the portfolio (see backtest).
+        prices: Prices of the assets in the portfolio (see backtest).
+        backtest_func: Function to backtest the strategy that accepts weights and prices.
+        backtest_n: Number of samples to test. Defaults to 1000.
+        noise_gaussian_mean: float = 0,
+        noise_gaussian_std_dev: float = 0.01,
+
+    Returns:
+        Dataframe of portfolio performance for each sample.
+    """
+
+    assert weights.shape == prices.shape, "Weights and prices must have the same shape"
+
+    results = {}
+
+    rs = RandomState(MT19937(SeedSequence(seed)))
+
+    for i in range(backtest_n):
+
+        noisey_prices = _perturb_with_gaussian_noise(
+            prices,
+            rs,
+            mean=noise_gaussian_mean,
+            std_dev=noise_gaussian_std_dev,
+        )
+        _, _, _, port_perf, _ = backtest_func(weights, noisey_prices)
+        results[i] = port_perf
+
+    return pd.concat(results).droplevel(1)
+
+
+def _perturb_with_gaussian_noise(
+    data: pd.DataFrame,
+    rs: RandomState,
+    mean: float = 0,
+    std_dev: float = 0.01,
+) -> pd.DataFrame:
+    """
+    Perturb data with gaussian noise, which is useful for testing the robustness of a strategy.
+    """
+    noise = rs.normal(mean, std_dev, data.shape)
+    noisy = data * (1 + noise)
+    return pd.DataFrame(noisy, index=data.index, columns=data.columns)
 
 
 def _log_rets(
