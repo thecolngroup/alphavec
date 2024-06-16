@@ -288,7 +288,7 @@ def backtest(
     )
 
 
-def random_period_test(
+def random_window_test(
     weights: pd.DataFrame,
     prices: pd.DataFrame,
     backtest_func: Callable[
@@ -296,18 +296,18 @@ def random_period_test(
         Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series],
     ],
     test_n: int = 1000,
-    sample_length: int = DEFAULT_TRADING_DAYS_YEAR,
+    window_size: int = DEFAULT_TRADING_DAYS_YEAR,
     allow_nan: bool = False,
     seed: int = 1,
 ) -> pd.DataFrame:
-    """Random period backtest samples random contiguous periods to evaluate the robustness of a strategy.
+    """Random window test samples random contiguous periods to evaluate the robustness of a strategy.
 
     Args:
         weights: Weights of the assets in the portfolio (see backtest).
         prices: Prices of the assets in the portfolio (see backtest).
         backtest_func: Function to backtest the strategy that accepts weights and prices.
         test_n: Number of random contiguous samples to test. Defaults to 1000.
-        sample_length: Length in periods of each contigous sample. Defaults to DEFAULT_TRADING_DAYS_YEAR.
+        window_size: Size in periods of each contigous sample. Defaults to DEFAULT_TRADING_DAYS_YEAR.
         allow_nan: Rejects a sample if NaN is found in weights or prices. Defaults to False.
         seed: Seed to reproduce results. Defaults to 1.
 
@@ -318,16 +318,16 @@ def random_period_test(
     assert weights.shape == prices.shape, "Weights and prices must have the same shape"
 
     assert (
-        len(prices) > sample_length
+        len(prices) > window_size
     ), "Weights and prices must have more than sample_length periods"
 
     results = {}
     rs = RandomState(MT19937(SeedSequence(seed)))
 
     for i in range(test_n):
-        start = rs.randint(0, len(prices) - sample_length)
+        start = rs.randint(0, len(prices) - window_size)
 
-        sample_prices = prices.iloc[start : start + sample_length].copy()
+        sample_prices = prices.iloc[start : start + window_size].copy()
         sample_weights = weights.loc[sample_prices.index].copy()
 
         if not allow_nan:
@@ -391,7 +391,7 @@ def random_noise_test(
 def monte_carlo_test(
     rets: pd.Series, n_test: int = 1000, seed: int = 1
 ) -> pd.DataFrame:
-    """Monte Carlo test to evaluate the robustness of a strategy.
+    """Monte Carlo test random samples returns (with replacement) to evaluate the robustness of a strategy.
 
     Args:
         rets: Strategy returns.
@@ -406,7 +406,7 @@ def monte_carlo_test(
     rs = RandomState(MT19937(SeedSequence(seed)))
 
     for i in range(n_test):
-        sampled_rets = rs.choice(rets, len(rets))
+        sampled_rets = rs.choice(rets, len(rets), replace=True)
         results[i] = pd.Series(sampled_rets, index=rets.index)
 
     return pd.concat(results, axis=1)
@@ -427,10 +427,10 @@ def _perturb_with_gaussian_noise(
 
 
 def _log_rets(
-    prices: Union[pd.DataFrame, pd.Series],
+    data: Union[pd.DataFrame, pd.Series],
 ) -> Union[pd.DataFrame, pd.Series]:
-    """Calculate log returns from a price series."""
-    return np.log(prices / prices.shift(1))  # type: ignore
+    """Calculate log returns from data."""
+    return np.log(data / data.shift(1))  # type: ignore
 
 
 def _ann_to_period_rate(ann_rate: float, periods_year: int) -> float:

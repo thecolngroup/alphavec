@@ -133,12 +133,12 @@ def test_random_period_backtest():
         shift_periods=1,
     )
 
-    results = vbt.random_period_test(
+    results = vbt.random_window_test(
         weights,
         prices,
         bt_func,
         test_n=100,
-        sample_length=90,
+        window_size=90,
         allow_nan=True,
         seed=1,
     )
