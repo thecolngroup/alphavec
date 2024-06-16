@@ -1,12 +1,14 @@
 """Backtest module for evaluating trading strategies."""
 
+from audioop import mul
 import logging
 from typing import Callable, Tuple, Union
 
 import numpy as np
-from numpy.random import MT19937
-from numpy.random import RandomState, SeedSequence
+from numpy.random import RandomState, SeedSequence, MT19937
 import pandas as pd
+from arch.bootstrap import StationaryBootstrap, optimal_block_length
+
 
 logger = logging.getLogger(__name__)
 
@@ -300,19 +302,22 @@ def random_window_test(
     allow_nan: bool = False,
     seed: int = 1,
 ) -> pd.DataFrame:
-    """Random window test samples random contiguous periods to evaluate the robustness of a strategy.
+    """Random window test samples random contiguous periods (windows) to evaluate the robustness of a strategy.
+
+    Goal is to test the strategy across different market regimes.
+    See the other test functions for bootstrap and monte carlo tests.
 
     Args:
         weights: Weights of the assets in the portfolio (see backtest).
         prices: Prices of the assets in the portfolio (see backtest).
         backtest_func: Function to backtest the strategy that accepts weights and prices.
         test_n: Number of random contiguous samples to test. Defaults to 1000.
-        window_size: Size in periods of each contigous sample. Defaults to DEFAULT_TRADING_DAYS_YEAR.
+        window_size: Size in periods of each window. Defaults to DEFAULT_TRADING_DAYS_YEAR.
         allow_nan: Rejects a sample if NaN is found in weights or prices. Defaults to False.
         seed: Seed to reproduce results. Defaults to 1.
 
     Returns:
-        Dataframe of portfolio performance for each sample.
+        Dataframe of portfolio performance for each window.
     """
 
     assert weights.shape == prices.shape, "Weights and prices must have the same shape"
@@ -341,7 +346,7 @@ def random_window_test(
     return pd.concat(results).droplevel(1)
 
 
-def random_noise_test(
+def monte_carlo_test(
     weights: pd.DataFrame,
     prices: pd.DataFrame,
     backtest_func: Callable[
@@ -349,21 +354,16 @@ def random_noise_test(
         Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series],
     ],
     test_n: int = 1000,
-    noise_gaussian_mean: float = 0,
-    noise_gaussian_std_dev: float = 0.01,
     seed: int = 1,
 ) -> pd.DataFrame:
-    """Random noise backtest adds noise to the price series to evaluate the robustness of a strategy.
+    """Monte carlo test simulates synthetic price series to evaluate the robustness of a strategy.
 
     Args:
         weights: Weights of the assets in the portfolio (see backtest).
         prices: Prices of the assets in the portfolio (see backtest).
         backtest_func: Function to backtest the strategy that accepts weights and prices.
-        test_n: Number of samples to test. Defaults to 1000.
-        noise_gaussian_mean: float = 0,
-        noise_gaussian_std_dev: float = 0.01,
+        test_n: Number of sythetic price series to test. Defaults to 1000.
         seed: Seed to reproduce results. Defaults to 1.
-
     Returns:
         Dataframe of portfolio performance for each sample.
     """
@@ -372,58 +372,16 @@ def random_noise_test(
 
     results = {}
 
+    rets = _log_rets(prices)
     rs = RandomState(MT19937(SeedSequence(seed)))
 
     for i in range(test_n):
-
-        noisey_prices = _perturb_with_gaussian_noise(
-            prices,
-            rs,
-            mean=noise_gaussian_mean,
-            std_dev=noise_gaussian_std_dev,
-        )
-        _, _, _, port_perf, _ = backtest_func(weights, noisey_prices)
+        sim_rets = rets.apply(lambda x: rs.choice(x, x.shape))  # type: ignore
+        sim_prices = 1 * nav(sim_rets)
+        _, _, _, port_perf, _ = backtest_func(weights, sim_prices)
         results[i] = port_perf
 
     return pd.concat(results).droplevel(1)
-
-
-def monte_carlo_test(
-    rets: pd.Series, n_test: int = 1000, seed: int = 1
-) -> pd.DataFrame:
-    """Monte Carlo test random samples returns (with replacement) to evaluate the robustness of a strategy.
-
-    Args:
-        rets: Strategy returns.
-        n: Number of simulations. Defaults to 1000.
-        seed: Seed to reproduce results. Defaults to 1.
-
-    Returns:
-        Dataframe of simulated returns.
-    """
-
-    results = {}
-    rs = RandomState(MT19937(SeedSequence(seed)))
-
-    for i in range(n_test):
-        sampled_rets = rs.choice(rets, len(rets), replace=True)
-        results[i] = pd.Series(sampled_rets, index=rets.index)
-
-    return pd.concat(results, axis=1)
-
-
-def _perturb_with_gaussian_noise(
-    data: pd.DataFrame,
-    rs: RandomState,
-    mean: float = 0,
-    std_dev: float = 0.01,
-) -> pd.DataFrame:
-    """
-    Perturb data with gaussian noise, which is useful for testing the robustness of a strategy.
-    """
-    noise = rs.normal(mean, std_dev, data.shape)
-    noisy = data * (1 + noise)
-    return pd.DataFrame(noisy, index=data.index, columns=data.columns)
 
 
 def _log_rets(

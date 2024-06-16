@@ -120,7 +120,7 @@ def test_borrow():
     assert act.iloc[1].round(2) == 0.36  # Case: weight with leverage
 
 
-def test_random_period_backtest():
+def test_random_window_backtest():
 
     prices = load_close_prices(["ETHUSDT", "BTCUSDT"])
     weights = prices.copy()
@@ -151,7 +151,7 @@ def test_random_period_backtest():
     assert stats["mean"] > 0
 
 
-def test_random_noise_backtest():
+def test_montecarlo_backtest():
 
     prices = load_close_prices(["ETHUSDT", "BTCUSDT"])
     weights = prices.copy()
@@ -164,7 +164,7 @@ def test_random_noise_backtest():
         shift_periods=1,
     )
 
-    results = vbt.random_noise_test(
+    results = vbt.monte_carlo_test(
         weights,
         prices,
         bt_func,
@@ -175,21 +175,6 @@ def test_random_noise_backtest():
     assert results is not None
 
     stats = results["annual_sharpe"].describe()
-    logging.info(stats)
-
-    assert stats["mean"] > 0
-
-
-def test_montecarlo():
-    prices = load_close_prices(["BTCUSDT"])
-    rets = vbt._log_rets(prices).squeeze()
-
-    results = vbt.monte_carlo_test(rets, n_test=100, seed=1)
-    assert results is not None
-    simulated_ann_sharpes = vbt._ann_sharpe(
-        results, ann_risk_free_rate=0, freq_year=365
-    )
-    stats = simulated_ann_sharpes.describe()
     logging.info(stats)
 
     assert stats["mean"] > 0
