@@ -302,10 +302,11 @@ def random_window_test(
     allow_nan: bool = False,
     seed: int = 1,
 ) -> pd.DataFrame:
-    """Random window test samples random contiguous periods (windows) to evaluate the robustness of a strategy.
+    """Random window test samples random windows of fixed length to evaluate the robustness of a strategy.
 
     Goal is to test the strategy across different market regimes.
-    See the other test functions for bootstrap and monte carlo tests.
+    Test selects random contiguous periods (windows) of the same length.
+    Window size should reflect a reasonable trading period for the strategy such as a year.
 
     Args:
         weights: Weights of the assets in the portfolio (see backtest).
@@ -357,6 +358,10 @@ def monte_carlo_test(
     seed: int = 1,
 ) -> pd.DataFrame:
     """Monte carlo test simulates synthetic price series to evaluate the robustness of a strategy.
+
+    Goal is to evaluate how the strategy might perform given different price paths.
+    The method samples (with replacement) from the returns of the given historical prices.
+
 
     Args:
         weights: Weights of the assets in the portfolio (see backtest).
