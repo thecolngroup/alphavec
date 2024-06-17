@@ -6,6 +6,8 @@ from typing import Callable, Tuple, Union
 import numpy as np
 from numpy.random import RandomState, SeedSequence, MT19937
 import pandas as pd
+import matplotlib.pyplot as plt
+import scipy.stats as stats
 
 
 logger = logging.getLogger(__name__)
@@ -302,6 +304,7 @@ def monte_carlo_test(
 
     Goal is to evaluate how the strategy might perform given different price paths.
     The method shuffles periods (with replacement) from the historical prices to preserve the empirical distribution.
+    To visualize the distribution of the simulated performance, use the hist function.
 
     Args:
         weights: Weights of the assets in the portfolio (see backtest).
@@ -334,6 +337,70 @@ def monte_carlo_test(
         results[i] = port_perf
 
     return pd.concat(results).droplevel(1)
+
+
+def plot_simulated(baseline: float, simulated: pd.Series):
+    """Plot the distribution of simulated values against a baseline.
+
+    Helper to visualize the robustness of your strategy.
+
+    Args:
+        baseline: Baseline value e.g. your original backtested annualized Sharpe.
+        simulated: Simulated values e.g. simulated Sharpes from a Monte Carlo test.
+    """
+
+    plt.figure(figsize=(10, 6))
+    plt.hist(simulated, bins=100, alpha=0.75, color="grey")
+
+    # Plot standard deviation lines
+    mu = float(np.mean(simulated))
+    std = float(np.std(simulated))
+    for i in range(1, 4):
+        plt.axvline(
+            mu + (i * std),
+            color="grey",
+            linestyle="dashed",
+            linewidth=1,
+        )
+        plt.axvline(
+            mu - (i * std),
+            color="grey",
+            linestyle="dashed",
+            linewidth=1,
+        )
+
+    # Plot statistical significance percentile
+    simulated_sorted = np.sort(simulated)
+    upper_ci = np.percentile(simulated_sorted, 97.5)
+    plt.axvline(
+        upper_ci,
+        color="green",
+        linestyle="solid",
+        linewidth=1,
+        label=f"Upper 95% CI ({upper_ci:.2f})",
+    )
+    lower_ci = np.percentile(simulated_sorted, 2.5)
+    plt.axvline(
+        lower_ci,
+        color="green",
+        linestyle="solid",
+        linewidth=1,
+        label=f"Lower 95% CI ({lower_ci:.2f})",
+    )
+
+    # Plot baseline
+    pctile = stats.percentileofscore(simulated, baseline)
+    plt.axvline(
+        baseline,
+        color="red",
+        linestyle="solid",
+        linewidth=1,
+        label=f"Baseline {baseline:.2f} ({pctile:.2f}%)",
+    )
+
+    plt.title("Distribution of Simulated vs Baseline")
+    plt.legend()
+    plt.show()
 
 
 def _log_rets(
