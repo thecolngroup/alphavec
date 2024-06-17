@@ -317,12 +317,19 @@ def monte_carlo_test(
 
     results = {}
 
+    # We shuffle returns which are stationary and then cumulate back to prices
     rets = _log_rets(prices)
-    rs = RandomState(MT19937(SeedSequence(seed)))
 
+    rs = RandomState(MT19937(SeedSequence(seed)))
     for i in range(test_n):
+        # Randomly sample with replacement from the historical returns
         sim_rets = rets.apply(lambda x: rs.choice(x.dropna(), size=x.shape, replace=True))  # type: ignore
-        sim_prices = 1000 * nav(sim_rets)
+        # Ensure that that NaNs are preserved
+        sim_rets[rets.isna()] = np.nan
+        # Cumulate the returns to get back to a price series
+        initial_prices = prices.apply(lambda x: x.loc[x.first_valid_index()])
+        sim_prices = initial_prices * nav(sim_rets)
+        # Run the backtest using the shuffled prices
         _, _, _, port_perf, _ = backtest_func(weights, sim_prices)  # type: ignore
         results[i] = port_perf
 

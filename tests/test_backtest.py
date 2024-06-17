@@ -122,7 +122,7 @@ def test_borrow():
 
 def test_montecarlo_backtest():
 
-    prices = load_close_prices(["ETHUSDT", "BTCUSDT"])
+    prices = load_close_prices(["ETHUSDT", "BTCUSDT", "DOGEUSDT"])
     weights = prices.copy()
     weights[:] = 0.5
 
