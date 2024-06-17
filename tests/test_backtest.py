@@ -120,37 +120,6 @@ def test_borrow():
     assert act.iloc[1].round(2) == 0.36  # Case: weight with leverage
 
 
-def test_random_window_backtest():
-
-    prices = load_close_prices(["ETHUSDT", "BTCUSDT"])
-    weights = prices.copy()
-    weights[:] = 0.5
-
-    bt_func = partial(
-        vbt.backtest,
-        freq_day=1,
-        trading_days_year=365,
-        shift_periods=1,
-    )
-
-    results = vbt.random_window_test(
-        weights,
-        prices,
-        bt_func,
-        test_n=100,
-        window_size=90,
-        allow_nan=True,
-        seed=1,
-    )
-
-    assert results is not None
-
-    stats = results["annual_sharpe"].describe()
-    logging.info(stats)
-
-    assert stats["mean"] > 0
-
-
 def test_montecarlo_backtest():
 
     prices = load_close_prices(["ETHUSDT", "BTCUSDT"])

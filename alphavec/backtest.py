@@ -1,13 +1,11 @@
 """Backtest module for evaluating trading strategies."""
 
-from audioop import mul
 import logging
 from typing import Callable, Tuple, Union
 
 import numpy as np
 from numpy.random import RandomState, SeedSequence, MT19937
 import pandas as pd
-from arch.bootstrap import StationaryBootstrap, optimal_block_length
 
 
 logger = logging.getLogger(__name__)
@@ -290,63 +288,6 @@ def backtest(
     )
 
 
-def random_window_test(
-    weights: pd.DataFrame,
-    prices: pd.DataFrame,
-    backtest_func: Callable[
-        [pd.DataFrame, pd.DataFrame],
-        Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series],
-    ],
-    test_n: int = 1000,
-    window_size: int = DEFAULT_TRADING_DAYS_YEAR,
-    allow_nan: bool = False,
-    seed: int = 1,
-) -> pd.DataFrame:
-    """Random window test samples random windows of fixed length to evaluate the robustness of a strategy.
-
-    Goal is to test the strategy across different market regimes.
-    Test selects random contiguous periods (windows) of the same length.
-    Window size should reflect a reasonable trading period for the strategy such as a year.
-
-    Args:
-        weights: Weights of the assets in the portfolio (see backtest).
-        prices: Prices of the assets in the portfolio (see backtest).
-        backtest_func: Function to backtest the strategy that accepts weights and prices.
-        test_n: Number of random contiguous samples to test. Defaults to 1000.
-        window_size: Size in periods of each window. Defaults to DEFAULT_TRADING_DAYS_YEAR.
-        allow_nan: Rejects a sample if NaN is found in weights or prices. Defaults to False.
-        seed: Seed to reproduce results. Defaults to 1.
-
-    Returns:
-        Dataframe of portfolio performance for each window.
-    """
-
-    assert weights.shape == prices.shape, "Weights and prices must have the same shape"
-
-    assert (
-        len(prices) > window_size
-    ), "Weights and prices must have more than sample_length periods"
-
-    results = {}
-    rs = RandomState(MT19937(SeedSequence(seed)))
-
-    for i in range(test_n):
-        start = rs.randint(0, len(prices) - window_size)
-
-        sample_prices = prices.iloc[start : start + window_size].copy()
-        sample_weights = weights.loc[sample_prices.index].copy()
-
-        if not allow_nan:
-            if sample_prices.isna().any().any() or sample_weights.isna().any().any():
-                logging.debug(f"Skipping sample {i} due to NaN values")
-                continue
-
-        _, _, _, port_perf, _ = backtest_func(sample_weights, sample_prices)
-        results[i] = port_perf
-
-    return pd.concat(results).droplevel(1)
-
-
 def monte_carlo_test(
     weights: pd.DataFrame,
     prices: pd.DataFrame,
@@ -357,18 +298,17 @@ def monte_carlo_test(
     test_n: int = 1000,
     seed: int = 1,
 ) -> pd.DataFrame:
-    """Monte carlo test simulates synthetic price series to evaluate the robustness of a strategy.
+    """Monte carlo test simulates using a shuffled price series to evaluate the robustness of a strategy.
 
     Goal is to evaluate how the strategy might perform given different price paths.
-    The method samples (with replacement) from the returns of the given historical prices.
-
+    The method shuffles periods (with replacement) from the historical prices to preserve the empirical distribution.
 
     Args:
         weights: Weights of the assets in the portfolio (see backtest).
         prices: Prices of the assets in the portfolio (see backtest).
         backtest_func: Function to backtest the strategy that accepts weights and prices.
-        test_n: Number of sythetic price series to test. Defaults to 1000.
-        seed: Seed to reproduce results. Defaults to 1.
+        test_n: Number of simulations. Defaults to 1000.
+        seed: Seed for reproducibility. Defaults to 1.
     Returns:
         Dataframe of portfolio performance for each sample.
     """
@@ -381,9 +321,9 @@ def monte_carlo_test(
     rs = RandomState(MT19937(SeedSequence(seed)))
 
     for i in range(test_n):
-        sim_rets = rets.apply(lambda x: rs.choice(x, x.shape))  # type: ignore
-        sim_prices = 1 * nav(sim_rets)
-        _, _, _, port_perf, _ = backtest_func(weights, sim_prices)
+        sim_rets = rets.apply(lambda x: rs.choice(x.dropna(), size=x.shape, replace=True))  # type: ignore
+        sim_prices = 1000 * nav(sim_rets)
+        _, _, _, port_perf, _ = backtest_func(weights, sim_prices)  # type: ignore
         results[i] = port_perf
 
     return pd.concat(results).droplevel(1)
