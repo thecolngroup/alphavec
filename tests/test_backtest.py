@@ -74,7 +74,7 @@ def test_backtest_external_validation():
         shift_periods=1,
     )
     assert (
-        perf_sr.loc["2022-10-01T00:00:00.000", ("portfolio", "NAV")].round(2) == -1.07
+        perf_sr.loc["2022-10-01T00:00:00.000", ("portfolio", "pnl")].round(2) == -1.07
     )
 
 

@@ -67,18 +67,18 @@ def pct_commission(
     return commissions
 
 
-def nav(log_rets: Union[pd.DataFrame, pd.Series]) -> Union[pd.DataFrame, pd.Series]:
-    """Calculate the cumulative net asset value (NAV) from log returns.
+def pnl(log_rets: Union[pd.DataFrame, pd.Series]) -> Union[pd.DataFrame, pd.Series]:
+    """Calculate the cumulative profit and loss from log returns.
 
     Use this function in conjunction with log returns from the backtest.
     E.G. to calcuate portfolio value based on an initial investment of 1000:
-    equity_in_currency_units = 1000 * nav(port_rets)
+    equity_in_currency_units = 1000 * pnl(port_rets)
 
     Args:
         log_rets: Log returns of the assets in the portfolio.
 
     Returns:
-        Cumulative net asset value (NAV) of the portfolio.
+        Cumulative profit and loss of the portfolio.
     """
     return np.exp(log_rets).cumprod()  # type: ignore
 
@@ -137,7 +137,7 @@ def backtest(
     Returns:
         A tuple containing five data sets:
             1. Asset-wise performance table
-            2. Asset-wise equity curves
+            2. Asset-wise profit and loss curves
             3. Asset-wise rolling annualized Sharpes
             4. Portfolio performance table
             5. Portfolio (log) returns
@@ -156,7 +156,7 @@ def backtest(
     # Truncate the asset returns to account for shifting to ensure the asset and strategy performance is comparable.
     asset_rets = _log_rets(prices)
     asset_rets = asset_rets.iloc[:-shift_periods] if shift_periods > 0 else asset_rets
-    asset_nav = nav(asset_rets)
+    asset_pnl = pnl(asset_rets)
 
     asset_perf = pd.concat(
         [
@@ -189,7 +189,7 @@ def backtest(
     strat_rets = _log_rets(prices) - costs
     strat_rets = weights * strat_rets.shift(-shift_periods)
     strat_rets = strat_rets.iloc[:-shift_periods] if shift_periods > 0 else strat_rets
-    strat_nav = nav(strat_rets)
+    strat_pnl = pnl(strat_rets)
 
     # Calc the number of valid trading periods for each asset
     strat_valid_periods = weights.apply(
@@ -225,7 +225,7 @@ def backtest(
 
     # Evaluate the strategy portfolio performance
     port_rets = strat_rets.sum(axis=1)
-    port_nav = nav(port_rets)
+    port_pnl = pnl(port_rets)
 
     # Approximate the portfolio turnover as the weighted average sum of the asset-wise turnover
     port_ann_turnover = (strat_ann_turnover * weights.mean().abs()).sum()
@@ -250,11 +250,11 @@ def backtest(
         axis=1,
     )
 
-    perf_nav = pd.concat(
-        [port_nav, asset_nav, strat_nav],
+    perf_pnl = pd.concat(
+        [port_pnl, asset_pnl, strat_pnl],
         keys=["portfolio", "asset", "strategy"],
         axis=1,
-    ).rename(columns={0: "NAV"})
+    ).rename(columns={0: "PNL"})
 
     perf_roll_sr = pd.concat(
         [
@@ -279,11 +279,11 @@ def backtest(
         ],
         keys=["portfolio", "asset", "strategy"],
         axis=1,
-    ).rename(columns={0: "NAV"})
+    ).rename(columns={0: "SR"})
 
     return (
         perf,
-        perf_nav,
+        perf_pnl,
         perf_roll_sr,
         port_perf,
         port_rets,
@@ -331,7 +331,7 @@ def monte_carlo_test(
         sim_rets[rets.isna()] = np.nan
         # Cumulate the returns to get back to a price series
         initial_prices = prices.apply(lambda x: x.loc[x.first_valid_index()])
-        sim_prices = initial_prices * nav(sim_rets)
+        sim_prices = initial_prices * pnl(sim_rets)
         # Run the backtest using the shuffled prices
         _, _, _, port_perf, _ = backtest_func(weights, sim_prices)  # type: ignore
         results[i] = port_perf
@@ -462,7 +462,7 @@ def _cagr(
 
 def _max_drawdown(log_rets: Union[pd.DataFrame, pd.Series]) -> Union[pd.Series, float]:
     """Calculate the max drawdown in pct."""
-    curve = nav(log_rets)
+    curve = pnl(log_rets)
     hwm = curve.cummax()
     dd = (curve - hwm) / hwm
     return dd.min()  # type: ignore
@@ -489,7 +489,7 @@ def _turnover(
     ).min(axis=1)
     # Calculate the average portfolio value
     # Finally take the ratio of trading volume to mean portfolio value
-    nav_mu = (capital * nav(log_rets)).mean()
+    nav_mu = (capital * pnl(log_rets)).mean()
     turnover = trade_volume / nav_mu
     return turnover
 
