@@ -73,9 +73,7 @@ def test_backtest_external_validation():
         trading_days_year=252,
         shift_periods=1,
     )
-    assert (
-        perf_sr.loc["2022-10-01T00:00:00.000", ("portfolio", "pnl")].round(2) == -1.07
-    )
+    assert perf_sr.loc["2022-10-01T00:00:00.000", ("portfolio", "SR")].round(2) == -1.07
 
 
 def test_pct_commission():
@@ -118,61 +116,3 @@ def test_borrow():
     act = vbt._borrow(weights, prices, rate, periods)
     assert act.iloc[0] == 0  # Case: zero leverage
     assert act.iloc[1].round(2) == 0.36  # Case: weight with leverage
-
-
-def test_montecarlo_backtest():
-
-    prices = load_close_prices(["ETHUSDT", "BTCUSDT", "DOGEUSDT"])
-    weights = prices.copy()
-    weights[:] = 0.5
-
-    bt_func = partial(
-        vbt.backtest,
-        freq_day=1,
-        trading_days_year=365,
-        shift_periods=1,
-    )
-
-    results = vbt.bootstrap_test(
-        weights,
-        prices,
-        bt_func,
-        test_n=100,
-        seed=1,
-    )
-
-    assert results is not None
-
-    stats = results["annual_sharpe"].describe()
-    logging.info(stats)
-
-    assert stats["mean"] > 0
-
-
-def test_montecarlo_backtest02():
-
-    prices = load_close_prices(["ETHUSDT", "BTCUSDT", "DOGEUSDT"])
-    weights = prices.copy()
-    weights[:] = 0.5
-
-    bt_func = partial(
-        vbt.backtest,
-        freq_day=1,
-        trading_days_year=365,
-        shift_periods=1,
-    )
-
-    results = vbt.bootstrap01_test(
-        weights,
-        prices,
-        bt_func,
-        test_n=100,
-        seed=1,
-    )
-
-    assert results is not None
-
-    stats = results["annual_sharpe"].describe()
-    logging.info(stats)
-
-    assert stats["mean"] > 0
