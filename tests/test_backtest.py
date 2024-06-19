@@ -133,7 +133,36 @@ def test_montecarlo_backtest():
         shift_periods=1,
     )
 
-    results = vbt.monte_carlo_test(
+    results = vbt.bootstrap_test(
+        weights,
+        prices,
+        bt_func,
+        test_n=100,
+        seed=1,
+    )
+
+    assert results is not None
+
+    stats = results["annual_sharpe"].describe()
+    logging.info(stats)
+
+    assert stats["mean"] > 0
+
+
+def test_montecarlo_backtest02():
+
+    prices = load_close_prices(["ETHUSDT", "BTCUSDT", "DOGEUSDT"])
+    weights = prices.copy()
+    weights[:] = 0.5
+
+    bt_func = partial(
+        vbt.backtest,
+        freq_day=1,
+        trading_days_year=365,
+        shift_periods=1,
+    )
+
+    results = vbt.bootstrap01_test(
         weights,
         prices,
         bt_func,

@@ -1,13 +1,16 @@
 """Backtest module for evaluating trading strategies."""
 
+from calendar import c
+from ensurepip import bootstrap
 import logging
-from typing import Callable, Tuple, Union
+from typing import Callable, Tuple, Union, List
 
 import numpy as np
 from numpy.random import RandomState, SeedSequence, MT19937
 import pandas as pd
 import matplotlib.pyplot as plt
 import scipy.stats as stats
+from arch.bootstrap import StationaryBootstrap, optimal_block_length
 
 
 logger = logging.getLogger(__name__)
@@ -95,7 +98,15 @@ def backtest(
     ann_borrow_rate: float = 0,
     spread_pct: float = 0,
     ann_risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
-) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series]:
+    bootstrap_n: int = 0,
+) -> Tuple[
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.DataFrame,
+    pd.Series,
+    pd.DataFrame | None,
+]:
     """Backtest a trading strategy.
 
     Strategy is simulated using the given weights, prices, and cost parameters.
@@ -133,6 +144,7 @@ def backtest(
         ann_borrow_rate: Annualized borrowing rate applied when asset weight > 1. Defaults to 0.
         spread_pct: Spread cost percentage. Defaults to 0.
         ann_risk_free_rate: Annualized risk-free rate used to calculate Sharpe ratio. Defaults to 0.02.
+        bootstrap_n: Number of bootstrap iterations to validate portfolio performance. Defaults to 0 (no validation).
 
     Returns:
         A tuple containing five data sets:
@@ -141,6 +153,7 @@ def backtest(
             3. Asset-wise rolling annualized Sharpes
             4. Portfolio performance table
             5. Portfolio (log) returns
+            6. Optional: bootstrapped portfolio performance table
     """
 
     assert weights.shape == prices.shape, "Weights and prices must have the same shape"
@@ -230,19 +243,6 @@ def backtest(
     # Approximate the portfolio turnover as the weighted average sum of the asset-wise turnover
     port_ann_turnover = (strat_ann_turnover * weights.mean().abs()).sum()
 
-    port_perf = pd.DataFrame(
-        {
-            "annual_sharpe": _ann_sharpe(
-                port_rets, freq_year=freq_year, ann_risk_free_rate=ann_risk_free_rate
-            ),
-            "annual_volatility": _ann_vol(port_rets, freq_year=freq_year),
-            "cagr": _cagr(port_rets, freq_year=freq_year),
-            "max_drawdown": _max_drawdown(port_rets),
-            "annual_turnover": port_ann_turnover,
-        },
-        index=["portfolio"],
-    )
-
     # Combine the asset and strategy performance metrics into a single dataframe for comparison
     perf = pd.concat(
         [asset_perf, strat_perf],
@@ -281,62 +281,58 @@ def backtest(
         axis=1,
     ).rename(columns={0: "SR"})
 
+    def port_metrics(port_rets: pd.Series):
+        return pd.DataFrame(
+            {
+                "annual_sharpe": _ann_sharpe(
+                    port_rets,
+                    freq_year=freq_year,
+                    ann_risk_free_rate=ann_risk_free_rate,
+                ),
+                "annual_volatility": _ann_vol(port_rets, freq_year=freq_year),
+                "cagr": _cagr(port_rets, freq_year=freq_year),
+                "max_drawdown": _max_drawdown(port_rets),
+                "annual_turnover": port_ann_turnover,
+            },
+            index=["portfolio"],
+        )
+
+    port_perf = port_metrics(port_rets)
+    port_bootstrap_perf = None
+    if bootstrap_n > 0:
+        bootstrap_rets = _bootstrap_n(port_rets, n=bootstrap_n)
+        bootstrap_perf = [port_metrics(rets) for rets in bootstrap_rets]
+        port_bootstrap_perf = pd.concat(bootstrap_perf)
+
     return (
         perf,
         perf_pnl,
         perf_roll_sr,
         port_perf,
         port_rets,
+        port_bootstrap_perf,
     )
 
 
-def monte_carlo_test(
-    weights: pd.DataFrame,
-    prices: pd.DataFrame,
-    backtest_func: Callable[
-        [pd.DataFrame, pd.DataFrame],
-        Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.Series],
-    ],
-    test_n: int = 1000,
+def _bootstrap_n(
+    x: pd.Series,
+    n: int = 1000,
     seed: int = 1,
-) -> pd.DataFrame:
-    """Monte carlo test simulates using a shuffled price series to evaluate the robustness of a strategy.
+) -> List[pd.Series]:
 
-    Goal is to evaluate how the strategy might perform given different price paths.
-    The method shuffles periods (with replacement) from the historical prices to preserve the empirical distribution.
-    To visualize the distribution of the simulated performance, use the hist function.
+    bootstrapped = []
 
-    Args:
-        weights: Weights of the assets in the portfolio (see backtest).
-        prices: Prices of the assets in the portfolio (see backtest).
-        backtest_func: Function to backtest the strategy that accepts weights and prices.
-        test_n: Number of simulations. Defaults to 1000.
-        seed: Seed for reproducibility. Defaults to 1.
-    Returns:
-        Dataframe of portfolio performance for each sample.
-    """
-
-    assert weights.shape == prices.shape, "Weights and prices must have the same shape"
-
-    results = {}
-
-    # We shuffle returns which are stationary and then cumulate back to prices
-    rets = _log_rets(prices)
-
+    block_size = optimal_block_length(x.dropna())["stationary"].squeeze()
     rs = RandomState(MT19937(SeedSequence(seed)))
-    for i in range(test_n):
-        # Randomly sample with replacement from the historical returns
-        sim_rets = rets.apply(lambda x: rs.choice(x.dropna(), size=x.shape, replace=True))  # type: ignore
-        # Ensure that that NaNs are preserved
-        sim_rets[rets.isna()] = np.nan
-        # Cumulate the returns to get back to a price series
-        initial_prices = prices.apply(lambda x: x.loc[x.first_valid_index()])
-        sim_prices = initial_prices * pnl(sim_rets)
-        # Run the backtest using the shuffled prices
-        _, _, _, port_perf, _ = backtest_func(weights, sim_prices)  # type: ignore
-        results[i] = port_perf
 
-    return pd.concat(results).droplevel(1)
+    bs = StationaryBootstrap(block_size, x.dropna().values, seed=rs)
+
+    for data in bs.bootstrap(n):
+        ser = pd.Series(data[0][0], index=x.index)
+        ser[x.isna()] = np.nan
+        bootstrapped.append(ser)
+
+    return bootstrapped
 
 
 def plot_simulated(baseline: float, simulated: pd.Series):
