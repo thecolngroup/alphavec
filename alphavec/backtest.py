@@ -98,14 +98,13 @@ def backtest(
     ann_borrow_rate: float = 0,
     spread_pct: float = 0,
     ann_risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
-    bootstrap_n: int = 0,
+    bootstrap_n: int = 1000,
 ) -> Tuple[
     pd.DataFrame,
     pd.DataFrame,
     pd.DataFrame,
     pd.DataFrame,
     pd.Series,
-    pd.DataFrame | None,
 ]:
     """Backtest a trading strategy.
 
@@ -144,7 +143,7 @@ def backtest(
         ann_borrow_rate: Annualized borrowing rate applied when asset weight > 1. Defaults to 0.
         spread_pct: Spread cost percentage. Defaults to 0.
         ann_risk_free_rate: Annualized risk-free rate used to calculate Sharpe ratio. Defaults to 0.02.
-        bootstrap_n: Number of bootstrap iterations to validate portfolio performance. Defaults to 0 (no validation).
+        bootstrap_n: Number of bootstrap iterations to validate portfolio performance. Defaults to 1000.
 
     Returns:
         A tuple containing five data sets:
@@ -153,7 +152,6 @@ def backtest(
             3. Asset-wise rolling annualized Sharpes
             4. Portfolio performance table
             5. Portfolio (log) returns
-            6. Optional: bootstrapped portfolio performance table
     """
 
     assert weights.shape == prices.shape, "Weights and prices must have the same shape"
@@ -294,68 +292,74 @@ def backtest(
                 "max_drawdown": _max_drawdown(port_rets),
                 "annual_turnover": port_ann_turnover,
             },
-            index=["portfolio"],
+            index=["observed"],
         )
 
     port_perf = calc_port_metrics(port_rets)
-    port_bootstrap_perf = None
     if bootstrap_n > 0:
-        bootstrap_rets = _bootstrap_n(port_rets, n=bootstrap_n, stationary_method=True)
-        bootstrap_perf = [calc_port_metrics(rets) for rets in bootstrap_rets]
-        port_bootstrap_perf = pd.concat(bootstrap_perf)
+        sampled_rets = _bootstrap_sampling(
+            port_rets, n=bootstrap_n, stationary_method=True
+        )
+        sampled_perf = pd.concat([calc_port_metrics(rets) for rets in sampled_rets])
 
-    return (
-        perf,
-        perf_pnl,
-        perf_roll_sr,
-        port_perf,
-        port_rets,
-        port_bootstrap_perf,
-    )
+        def describe(x):
+            return pd.Series(
+                {
+                    "mean": x.mean(),
+                    "std": x.std(),
+                    "median": x.median(),
+                    "ucl.95": np.percentile(x, 97.5),
+                    "lcl.95": np.percentile(x, 2.5),
+                }
+            )
+
+        port_perf = pd.concat([port_perf, sampled_perf.apply(describe)]).round(4)
+
+    return (perf, perf_pnl, perf_roll_sr, port_perf, port_rets)
 
 
-def _bootstrap_n(
+def _bootstrap_sampling(
     x: pd.Series,
     n: int = 1000,
     seed: int = 1,
     stationary_method: bool = False,
 ) -> List[pd.Series]:
 
-    bootstrapped = []
+    samples = []
 
     rs = RandomState(MT19937(SeedSequence(seed)))
 
     if stationary_method:
         block_size = optimal_block_length(x.dropna())["stationary"].squeeze()
         bs = StationaryBootstrap(block_size, x.dropna().values, seed=rs)  # type: ignore
-        for data in bs.bootstrap(n):
-            ser = pd.Series(data[0][0], index=x.index)  # type: ignore
-            ser[x.isna()] = np.nan
-            bootstrapped.append(ser)
+        for sample in bs.bootstrap(n):
+            sample = pd.Series(sample[0][0], index=x.index)  # type: ignore
+            sample[x.isna()] = np.nan
+            samples.append(sample)
     else:
         for _ in range(n):
-            data = rs.choice(x.dropna(), size=x.shape, replace=True)  # type: ignore
-            ser = pd.Series(data, index=x.index)
-            ser[x.isna()] = np.nan
-            bootstrapped.append(ser)
+            sample = rs.choice(x.dropna(), size=x.shape, replace=True)  # type: ignore
+            sample = pd.Series(sample, index=x.index)
+            sample[x.isna()] = np.nan
+            samples.append(sample)
 
-    return bootstrapped
+    return samples
 
 
-def plot_distribution(observed: float, tested: pd.Series):
+def plot_distribution(observed: float, sampled: pd.Series):
     """Plot the distribution of sampled values against the observed value.
 
     Args:
         observed: Observed value e.g. your original backtested annualized Sharpe.
-        tested: Sampled values e.g. bootstrapped Sharpes.
+        sampled: Sampled values e.g. bootstrapped Sharpes.
     """
 
     plt.figure(figsize=(10, 6))
-    plt.hist(tested, bins=100, alpha=0.75, color="grey")
+    plt.hist(sampled, bins=100, alpha=0.75, color="grey")
 
     # Plot standard deviation lines
-    mu = float(np.mean(tested))
-    std = float(np.std(tested))
+    mu = float(np.mean(sampled))
+    std = float(np.std(sampled))
     for i in range(1, 4):
         plt.axvline(
             mu + (i * std),
@@ -371,7 +375,7 @@ def plot_distribution(observed: float, tested: pd.Series):
         )
 
     # Plot statistical significance percentile
-    simulated_sorted = np.sort(tested)
+    simulated_sorted = np.sort(sampled)
     upper_ci = np.percentile(simulated_sorted, 97.5)
     plt.axvline(
         upper_ci,
@@ -390,7 +394,7 @@ def plot_distribution(observed: float, tested: pd.Series):
     )
 
     # Plot baseline
-    pctile = stats.percentileofscore(tested, observed)
+    pctile = stats.percentileofscore(sampled, observed)
     plt.axvline(
         observed,
         color="red",
@@ -399,7 +403,7 @@ def plot_distribution(observed: float, tested: pd.Series):
         label=f"Baseline {observed:.2f} ({pctile:.2f}%)",
     )
 
-    plt.title("Distribution of Simulated vs Baseline")
+    plt.title("Distribution of Sampled vs Observed")
     plt.legend()
     plt.show()
 
