@@ -281,7 +281,7 @@ def backtest(
         axis=1,
     ).rename(columns={0: "SR"})
 
-    def port_metrics(port_rets: pd.Series):
+    def calc_port_metrics(port_rets: pd.Series):
         return pd.DataFrame(
             {
                 "annual_sharpe": _ann_sharpe(
@@ -297,11 +297,11 @@ def backtest(
             index=["portfolio"],
         )
 
-    port_perf = port_metrics(port_rets)
+    port_perf = calc_port_metrics(port_rets)
     port_bootstrap_perf = None
     if bootstrap_n > 0:
-        bootstrap_rets = _bootstrap_n(port_rets, n=bootstrap_n)
-        bootstrap_perf = [port_metrics(rets) for rets in bootstrap_rets]
+        bootstrap_rets = _bootstrap_n(port_rets, n=bootstrap_n, stationary_method=True)
+        bootstrap_perf = [calc_port_metrics(rets) for rets in bootstrap_rets]
         port_bootstrap_perf = pd.concat(bootstrap_perf)
 
     return (
@@ -318,39 +318,44 @@ def _bootstrap_n(
     x: pd.Series,
     n: int = 1000,
     seed: int = 1,
+    stationary_method: bool = False,
 ) -> List[pd.Series]:
 
     bootstrapped = []
 
-    block_size = optimal_block_length(x.dropna())["stationary"].squeeze()
     rs = RandomState(MT19937(SeedSequence(seed)))
 
-    bs = StationaryBootstrap(block_size, x.dropna().values, seed=rs)
-
-    for data in bs.bootstrap(n):
-        ser = pd.Series(data[0][0], index=x.index)
-        ser[x.isna()] = np.nan
-        bootstrapped.append(ser)
+    if stationary_method:
+        block_size = optimal_block_length(x.dropna())["stationary"].squeeze()
+        bs = StationaryBootstrap(block_size, x.dropna().values, seed=rs)  # type: ignore
+        for data in bs.bootstrap(n):
+            ser = pd.Series(data[0][0], index=x.index)  # type: ignore
+            ser[x.isna()] = np.nan
+            bootstrapped.append(ser)
+    else:
+        for _ in range(n):
+            data = rs.choice(x.dropna(), size=x.shape, replace=True)  # type: ignore
+            ser = pd.Series(data, index=x.index)
+            ser[x.isna()] = np.nan
+            bootstrapped.append(ser)
 
     return bootstrapped
 
 
-def plot_simulated(baseline: float, simulated: pd.Series):
-    """Plot the distribution of simulated values against a baseline.
-
-    Helper to visualize the robustness of your strategy.
+def plot_distribution(observed: float, tested: pd.Series):
+    """Plot the distribution of sampled values against the observed value.
 
     Args:
-        baseline: Baseline value e.g. your original backtested annualized Sharpe.
-        simulated: Simulated values e.g. simulated Sharpes from a Monte Carlo test.
+        observed: Observed value e.g. your original backtested annualized Sharpe.
+        tested: Sampled values e.g. bootstrapped Sharpes.
     """
 
     plt.figure(figsize=(10, 6))
-    plt.hist(simulated, bins=100, alpha=0.75, color="grey")
+    plt.hist(tested, bins=100, alpha=0.75, color="grey")
 
     # Plot standard deviation lines
-    mu = float(np.mean(simulated))
-    std = float(np.std(simulated))
+    mu = float(np.mean(tested))
+    std = float(np.std(tested))
     for i in range(1, 4):
         plt.axvline(
             mu + (i * std),
@@ -366,7 +371,7 @@ def plot_simulated(baseline: float, simulated: pd.Series):
         )
 
     # Plot statistical significance percentile
-    simulated_sorted = np.sort(simulated)
+    simulated_sorted = np.sort(tested)
     upper_ci = np.percentile(simulated_sorted, 97.5)
     plt.axvline(
         upper_ci,
@@ -385,13 +390,13 @@ def plot_simulated(baseline: float, simulated: pd.Series):
     )
 
     # Plot baseline
-    pctile = stats.percentileofscore(simulated, baseline)
+    pctile = stats.percentileofscore(tested, observed)
     plt.axvline(
-        baseline,
+        observed,
         color="red",
         linestyle="solid",
         linewidth=1,
-        label=f"Baseline {baseline:.2f} ({pctile:.2f}%)",
+        label=f"Baseline {observed:.2f} ({pctile:.2f}%)",
     )
 
     plt.title("Distribution of Simulated vs Baseline")
