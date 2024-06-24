@@ -477,25 +477,25 @@ def _turnover(
     weights: Union[pd.DataFrame, pd.Series],
     log_rets: Union[pd.DataFrame, pd.Series],
 ) -> pd.Series | float:
-    """Calculate the turnover for each position in the strategy."""
+    """Calculate the non-annualized turnover for each position in the strategy using the post-cost returns."""
     # Assume capital of 1000
     capital = 1000
     # Calculate the delta of the weight between each interval
     # Buy will be +ve, sell will be -ve
     diff = weights.fillna(0).diff()
     # Capital is fixed (uncompounded) for each interval so we can calculate the trade volume
-    # Sum the volume of the buy and sell trades
+    # Sum the amount of the buy and sell trades
     buy_volume = (diff.where(lambda x: x.gt(0), 0).abs() * capital).sum()
     sell_volume = (diff.where(lambda x: x.lt(0), 0).abs() * capital).sum()
-    # Trade volume is the minimum of the buy and sell volumes
-    # Wrap in Series in case of scalar volume sum (when weights is a Series)
-    trade_volume = pd.concat(
+    # Traded amount is the minimum of the buy and sell amounts
+    # Wrap in Series in case of scalar sum (when weights is a Series)
+    traded_amount = pd.concat(
         [pd.Series(buy_volume), pd.Series(sell_volume)], axis=1
     ).min(axis=1)
     # Calculate the average portfolio value
-    # Finally take the ratio of trading volume to mean portfolio value
-    nav_mu = (capital * pnl(log_rets)).mean()
-    turnover = trade_volume / nav_mu
+    # Finally take the ratio of traded amount to mean portfolio value
+    mu = (capital * pnl(log_rets)).mean()
+    turnover = traded_amount / mu
     return turnover
 
 
