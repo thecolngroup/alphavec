@@ -94,7 +94,7 @@ def test_turnover():
     returns = weights * vbt._log_rets(prices)
 
     act = vbt._turnover(weights, returns).squeeze().round(2)
-    assert act == 0.21
+    assert act == 0.52
     logging.info(act)
 
 

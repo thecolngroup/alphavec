@@ -239,7 +239,11 @@ def backtest(
     port_pnl = pnl(port_rets)
 
     # Approximate the portfolio turnover as the weighted average sum of the asset-wise turnover
-    port_ann_turnover = (strat_ann_turnover * weights.mean().abs()).sum()
+    # port_ann_turnover = _turnover(weights.abs().sum(axis=1), port_rets) * (
+    #    trading_days_year / strat_total_days.max()
+    # )
+
+    port_ann_turnover = (strat_ann_turnover * weights.abs().mean()).sum()
 
     # Combine the asset and strategy performance metrics into a single dataframe for comparison
     perf = pd.concat(
@@ -476,26 +480,16 @@ def _max_drawdown(log_rets: Union[pd.DataFrame, pd.Series]) -> Union[pd.Series, 
 def _turnover(
     weights: Union[pd.DataFrame, pd.Series],
     log_rets: Union[pd.DataFrame, pd.Series],
-) -> pd.Series | float:
+) -> float:
     """Calculate the non-annualized turnover for each position in the strategy using the post-cost returns."""
-    # Assume capital of 1000
-    capital = 1000
-    # Calculate the delta of the weight between each interval
-    # Buy will be +ve, sell will be -ve
-    diff = weights.fillna(0).diff()
-    # Capital is fixed (uncompounded) for each interval so we can calculate the trade volume
-    # Sum the amount of the buy and sell trades
-    buy_volume = (diff.where(lambda x: x.gt(0), 0).abs() * capital).sum()
-    sell_volume = (diff.where(lambda x: x.lt(0), 0).abs() * capital).sum()
-    # Traded amount is the minimum of the buy and sell amounts
-    # Wrap in Series in case of scalar sum (when weights is a Series)
-    traded_amount = pd.concat(
-        [pd.Series(buy_volume), pd.Series(sell_volume)], axis=1
-    ).min(axis=1)
-    # Calculate the average portfolio value
-    # Finally take the ratio of traded amount to mean portfolio value
-    mu = (capital * pnl(log_rets)).mean()
-    turnover = traded_amount / mu
+
+    if isinstance(weights, pd.Series):
+        weights = weights.to_frame()
+    traded = weights.abs().sum(axis=1).fillna(0).diff().abs().sum()
+
+    mu = pnl(log_rets).mean()
+
+    turnover = traded / mu
     return turnover
 
 
