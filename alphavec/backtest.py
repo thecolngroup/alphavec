@@ -211,14 +211,14 @@ def backtest(
             _ann_vol(strat_rets, freq_year=freq_year),
             _cagr(strat_rets, freq_year=freq_year),
             _max_drawdown(strat_rets),
-            _ann_ter(costs, strat_rets, freq_year=freq_year),
+            _ann_cost_ratio(costs, strat_rets, freq_year=freq_year),
         ],  # type: ignore
         keys=[
             "annual_sharpe",
             "annual_volatility",
             "cagr",
             "max_drawdown",
-            "annual_ter",
+            "annual_cost_ratio",
         ],
         axis=1,
     )
@@ -277,7 +277,9 @@ def backtest(
                 "annual_volatility": _ann_vol(port_rets, freq_year=freq_year),
                 "cagr": _cagr(port_rets, freq_year=freq_year),
                 "max_drawdown": _max_drawdown(port_rets),
-                "annual_ter": _ann_ter(costs, port_rets, freq_year=freq_year),
+                "annual_cost_ratio": _ann_cost_ratio(
+                    costs, port_rets, freq_year=freq_year
+                ),
             },
             index=["observed"],
         )
@@ -460,17 +462,17 @@ def _max_drawdown(log_rets: Union[pd.DataFrame, pd.Series]) -> Union[pd.Series, 
     return dd.min()  # type: ignore
 
 
-def _ann_ter(
+def _ann_cost_ratio(
     costs_pct: Union[pd.DataFrame, pd.Series],
     log_rets: Union[pd.DataFrame, pd.Series],
     freq_year: int = DEFAULT_TRADING_DAYS_YEAR,
 ) -> Union[pd.Series, float]:
-    """Calculate the ratio of total costs to average PnL."""
+    """Calculate the annualized ratio of total costs to average PnL."""
     total_costs = costs_pct.abs().sum()
     avg_pnl = pnl(log_rets).mean()
-    ter = total_costs / avg_pnl
-    ann_ter = ter / (log_rets.count() / freq_year)
-    return ann_ter
+    cr = total_costs / avg_pnl
+    ann_cr = cr / (log_rets.count() / freq_year)
+    return ann_cr
 
 
 def _spread(

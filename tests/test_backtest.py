@@ -88,12 +88,12 @@ def test_pct_commission():
     assert act.iloc[4] == 3.5  # Case: fee for 1 to -2.5
 
 
-def test_ann_ter():
+def test_ann_cost_ratio():
     weights = pd.Series([0, np.nan, 0, 1, -2.5])
     prices = pd.Series([10, 20, 40, 80, 40])
     returns = weights * vbt._log_rets(prices)
 
-    act = vbt._ann_ter(weights, returns).squeeze().round(2)
+    act = vbt._ann_cost_ratio(weights, returns).squeeze().round(2)
     assert act == 61.62
     logging.info(act)
 
