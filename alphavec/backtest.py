@@ -202,17 +202,6 @@ def backtest(
     strat_rets = strat_rets.iloc[:-shift_periods] if shift_periods > 0 else strat_rets
     strat_pnl = pnl(strat_rets)
 
-    # Calc the number of valid trading periods for each asset
-    strat_valid_periods = weights.apply(
-        lambda col: col.loc[col.first_valid_index() :].count()
-    )
-    strat_total_days = strat_valid_periods / freq_day
-
-    # Calc the annual turnover for each asset
-    strat_ann_turnover = _turnover(weights, strat_rets) * (
-        trading_days_year / strat_total_days
-    )
-
     # Evaluate the strategy asset-wise performance
     strat_perf = pd.concat(
         [
@@ -222,14 +211,14 @@ def backtest(
             _ann_vol(strat_rets, freq_year=freq_year),
             _cagr(strat_rets, freq_year=freq_year),
             _max_drawdown(strat_rets),
-            strat_ann_turnover,
+            _ann_ter(costs, strat_rets, freq_year=freq_year),
         ],  # type: ignore
         keys=[
             "annual_sharpe",
             "annual_volatility",
             "cagr",
             "max_drawdown",
-            "annual_turnover",
+            "annual_ter",
         ],
         axis=1,
     )
@@ -237,13 +226,7 @@ def backtest(
     # Evaluate the strategy portfolio performance
     port_rets = strat_rets.sum(axis=1)
     port_pnl = pnl(port_rets)
-
-    # Approximate the portfolio turnover as the weighted average sum of the asset-wise turnover
-    # port_ann_turnover = _turnover(weights.abs().sum(axis=1), port_rets) * (
-    #    trading_days_year / strat_total_days.max()
-    # )
-
-    port_ann_turnover = (strat_ann_turnover * weights.abs().mean()).sum()
+    port_costs = costs.abs().sum(axis=1)
 
     # Combine the asset and strategy performance metrics into a single dataframe for comparison
     perf = pd.concat(
@@ -283,7 +266,7 @@ def backtest(
         axis=1,
     ).rename(columns={0: "SR"})
 
-    def calc_port_metrics(port_rets: pd.Series):
+    def calc_port_metrics(port_rets: pd.Series, costs: pd.Series, freq_year: int):
         return pd.DataFrame(
             {
                 "annual_sharpe": _ann_sharpe(
@@ -294,17 +277,17 @@ def backtest(
                 "annual_volatility": _ann_vol(port_rets, freq_year=freq_year),
                 "cagr": _cagr(port_rets, freq_year=freq_year),
                 "max_drawdown": _max_drawdown(port_rets),
-                "annual_turnover": port_ann_turnover,
+                "annual_ter": _ann_ter(costs, port_rets, freq_year=freq_year),
             },
             index=["observed"],
         )
 
-    port_perf = calc_port_metrics(port_rets)
+    port_perf = calc_port_metrics(port_rets, port_costs, freq_year)
     if bootstrap_n > 0:
         sampled_rets = _bootstrap_sampling(
             port_rets, n=bootstrap_n, stationary_method=True
         )
-        sampled_perf = pd.concat([calc_port_metrics(rets) for rets in sampled_rets])
+        sampled_perf = pd.concat([calc_port_metrics(rets, port_costs, freq_year) for rets in sampled_rets])  # type: ignore
 
         def describe(x):
             return pd.Series(
@@ -463,7 +446,7 @@ def _cagr(
     freq_year: int = DEFAULT_TRADING_DAYS_YEAR,
 ) -> Union[pd.Series, float]:
     """Calculate CAGR."""
-    n_years = len(log_rets) / freq_year
+    n_years = log_rets.count() / freq_year
     final = np.exp(log_rets.sum()) - 1
     cagr = (1 + final) ** (1 / n_years) - 1
     return cagr  # type: ignore
@@ -477,20 +460,17 @@ def _max_drawdown(log_rets: Union[pd.DataFrame, pd.Series]) -> Union[pd.Series, 
     return dd.min()  # type: ignore
 
 
-def _turnover(
-    weights: Union[pd.DataFrame, pd.Series],
+def _ann_ter(
+    costs_pct: Union[pd.DataFrame, pd.Series],
     log_rets: Union[pd.DataFrame, pd.Series],
-) -> float:
-    """Calculate the non-annualized turnover for each position in the strategy using the post-cost returns."""
-
-    if isinstance(weights, pd.Series):
-        weights = weights.to_frame()
-    traded = weights.abs().sum(axis=1).fillna(0).diff().abs().sum()
-
-    mu = pnl(log_rets).mean()
-
-    turnover = traded / mu
-    return turnover
+    freq_year: int = DEFAULT_TRADING_DAYS_YEAR,
+) -> Union[pd.Series, float]:
+    """Calculate the ratio of total costs to average PnL."""
+    total_costs = costs_pct.abs().sum()
+    avg_pnl = pnl(log_rets).mean()
+    ter = total_costs / avg_pnl
+    ann_ter = ter / (log_rets.count() / freq_year)
+    return ann_ter
 
 
 def _spread(
