@@ -1,7 +1,5 @@
 """Backtest module for evaluating trading strategies."""
 
-from calendar import c
-from ensurepip import bootstrap
 import logging
 from typing import Callable, Tuple, Union, List
 
@@ -70,20 +68,28 @@ def pct_commission(
     return commissions
 
 
-def pnl(log_rets: Union[pd.DataFrame, pd.Series]) -> Union[pd.DataFrame, pd.Series]:
-    """Calculate the cumulative profit and loss from log returns.
-
-    Use this function in conjunction with log returns from the backtest.
-    E.G. to calcuate portfolio value based on an initial investment of 1000:
-    equity_in_currency_units = 1000 * pnl(port_rets)
+def equity_curve(
+    log_rets: Union[pd.DataFrame, pd.Series], initial: float = 1
+) -> Union[pd.DataFrame, pd.Series]:
+    """Calculate the compounded equity curve from log returns.
 
     Args:
         log_rets: Log returns of the assets in the portfolio.
+        initial: Initial investment. Defaults to 1000.
 
     Returns:
-        Cumulative profit and loss of the portfolio.
+        Equity curve.
     """
-    return np.exp(log_rets).cumprod()  # type: ignore
+
+    # Exponentiate the log returns to get the growth factors
+    # E.G. 1.05 = investment has grown by 5%
+    growth_factors = np.exp(log_rets)
+
+    # Compound the growth factors to get the total growth
+    # Multiply by the initial investment amount to get the account value in currency units
+    equity_curve = initial * growth_factors.cumprod()
+
+    return equity_curve  # type: ignore
 
 
 def backtest(
@@ -148,7 +154,7 @@ def backtest(
     Returns:
         A tuple containing five data sets:
             1. Asset-wise performance table
-            2. Asset-wise profit and loss curves
+            2. Asset-wise PnL curves
             3. Asset-wise rolling annualized Sharpes
             4. Portfolio performance table
             5. Portfolio (log) returns
@@ -167,7 +173,7 @@ def backtest(
     # Truncate the asset returns to account for shifting to ensure the asset and strategy performance is comparable.
     asset_rets = _log_rets(prices)
     asset_rets = asset_rets.iloc[:-shift_periods] if shift_periods > 0 else asset_rets
-    asset_pnl = pnl(asset_rets)
+    asset_curve = equity_curve(asset_rets)
 
     asset_perf = pd.concat(
         [
@@ -200,7 +206,7 @@ def backtest(
     strat_rets = _log_rets(prices) - costs
     strat_rets = weights * strat_rets.shift(-shift_periods)
     strat_rets = strat_rets.iloc[:-shift_periods] if shift_periods > 0 else strat_rets
-    strat_pnl = pnl(strat_rets)
+    strat_curve = equity_curve(strat_rets)
 
     # Evaluate the strategy asset-wise performance
     strat_perf = pd.concat(
@@ -225,7 +231,7 @@ def backtest(
 
     # Evaluate the strategy portfolio performance
     port_rets = strat_rets.sum(axis=1)
-    port_pnl = pnl(port_rets)
+    port_curve = equity_curve(port_rets)
     port_costs = costs.abs().sum(axis=1)
 
     # Combine the asset and strategy performance metrics into a single dataframe for comparison
@@ -235,11 +241,11 @@ def backtest(
         axis=1,
     )
 
-    perf_pnl = pd.concat(
-        [port_pnl, asset_pnl, strat_pnl],
+    perf_curve = pd.concat(
+        [port_curve, asset_curve, strat_curve],
         keys=["portfolio", "asset", "strategy"],
         axis=1,
-    ).rename(columns={0: "PNL"})
+    ).rename(columns={0: "equity_curve"})
 
     perf_roll_sr = pd.concat(
         [
@@ -264,7 +270,7 @@ def backtest(
         ],
         keys=["portfolio", "asset", "strategy"],
         axis=1,
-    ).rename(columns={0: "SR"})
+    ).rename(columns={0: "sharpe"})
 
     def calc_port_metrics(port_rets: pd.Series, costs: pd.Series, freq_year: int):
         return pd.DataFrame(
@@ -304,7 +310,7 @@ def backtest(
 
         port_perf = pd.concat([port_perf, sampled_perf.apply(describe)]).round(4)
 
-    return (perf, perf_pnl, perf_roll_sr, port_perf, port_rets)
+    return (perf, perf_curve, perf_roll_sr, port_perf, port_rets)
 
 
 def _bootstrap_sampling(
@@ -456,7 +462,7 @@ def _cagr(
 
 def _max_drawdown(log_rets: Union[pd.DataFrame, pd.Series]) -> Union[pd.Series, float]:
     """Calculate the max drawdown in pct."""
-    curve = pnl(log_rets)
+    curve = equity_curve(log_rets)
     hwm = curve.cummax()
     dd = (curve - hwm) / hwm
     return dd.min()  # type: ignore
@@ -469,8 +475,8 @@ def _ann_cost_ratio(
 ) -> Union[pd.Series, float]:
     """Calculate the annualized ratio of total costs to average PnL."""
     total_costs = costs_pct.abs().sum()
-    avg_pnl = pnl(log_rets).mean()
-    cr = total_costs / avg_pnl
+    avg_equity = equity_curve(log_rets).mean()
+    cr = total_costs / avg_equity
     ann_cr = cr / (log_rets.count() / freq_year)
     return ann_cr
 
@@ -480,7 +486,7 @@ def _spread(
     prices: Union[pd.DataFrame, pd.Series],
     spread_pct: float = 0,
 ) -> Union[pd.DataFrame, pd.Series]:
-    """Calculate the spread costs for each position in the strategy."""
+    """Calculate the spread costs for each trade (change in weights)."""
     size = weights.fillna(0).diff().abs()
     value = size * prices
     costs = value * (spread_pct * 0.5)
