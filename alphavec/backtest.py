@@ -1,15 +1,13 @@
 """Backtest module for evaluating trading strategies."""
 
 import logging
+import time
 from typing import Callable, Tuple, Union, List
 
+import pandas as pd
 import numpy as np
 from numpy.random import RandomState, SeedSequence, MT19937
-import pandas as pd
-import matplotlib.pyplot as plt
-import scipy.stats as stats
 from arch.bootstrap import StationaryBootstrap, optimal_block_length
-
 
 logger = logging.getLogger(__name__)
 
@@ -101,8 +99,8 @@ def backtest(
     commission_func: Callable[
         [pd.DataFrame, pd.DataFrame], pd.DataFrame
     ] = zero_commission,
-    ann_borrow_rate: float = 0,
     spread_pct: float = 0,
+    ann_borrow_rate: float = 0,
     ann_risk_free_rate: float = DEFAULT_RISK_FREE_RATE,
     bootstrap_n: int = 1000,
 ) -> Tuple[
@@ -115,19 +113,21 @@ def backtest(
     """Backtest a trading strategy.
 
     Strategy is simulated using the given weights, prices, and cost parameters.
-    Zero costs are calculated by default: no commission, no borrowing, no spread.
+    Zero costs are calculated by default: no commission, borrowing or spread.
 
-    To prevent look-ahead bias by default the returns are shifted 1 period relative to the weights during backtest.
-    The default shift assumes close prices and an ability to trade at the close,
+    To prevent look-ahead bias the returns are shifted 1 period relative to the weights.
+    This default shift assumes close prices and an ability to trade at the close,
     this is reasonable for 24 hour markets such as crypto, but not for traditional markets with fixed trading hours.
-    For traditional markets, you should set shift periods to at least 2.
+    For traditional markets, set shift periods to at least 2.
 
     Daily periods are default.
     If your prices and weights have a different periodocity pass in the appropriate freq_day value.
-    E.G. for 8 hour periods in a 24-hour market such as crypto, you should pass in 3.
+    E.G. for 8 hour periods you should pass in 3.
 
     Performance is reported both asset-wise and as a portfolio.
     Annualized metrics use the default trading days per year of 252.
+
+    Bootstrap estimation of portfolio performance is done by default, set bootstrap_n to 0 to disable.
 
     Args:
         weights:
@@ -146,15 +146,15 @@ def backtest(
         trading_days_year: Number of trading days in a year. Defaults to 252.
         shift_periods: Positive integer for n periods to shift returns relative to weights. Defaults to 1.
         commission_func: Function to calculate commission cost. Defaults to zero_commission.
-        ann_borrow_rate: Annualized borrowing rate applied when asset weight > 1. Defaults to 0.
-        spread_pct: Spread cost percentage. Defaults to 0.
+        spread_pct: Spread cost as a decimal percentage. Defaults to 0.
+        ann_borrow_rate: Annualized borrowing rate applied when absolute asset weight > 1. Defaults to 0.
         ann_risk_free_rate: Annualized risk-free rate used to calculate Sharpe ratio. Defaults to 0.02.
         bootstrap_n: Number of bootstrap iterations to validate portfolio performance. Defaults to 1000.
 
     Returns:
         A tuple containing five data sets:
             1. Asset-wise performance table
-            2. Asset-wise PnL curves
+            2. Asset-wise equity curves
             3. Asset-wise rolling annualized Sharpes
             4. Portfolio performance table
             5. Portfolio (log) returns
@@ -164,6 +164,12 @@ def backtest(
     assert (
         weights.columns.tolist() == prices.columns.tolist()
     ), "Weights and prices must have the same column (asset) names"
+
+    row_n, col_n = weights.shape
+    ts_start = time.time()
+    logging.info(
+        f"Executing backtest for {col_n} assets over {row_n} periods with {bootstrap_n} bootstrap iterations..."
+    )
 
     # Calc the number of data intervals in a trading year for annualized metrics
     freq_year = freq_day * trading_days_year
@@ -217,6 +223,7 @@ def backtest(
             _ann_vol(strat_rets, freq_year=freq_year),
             _cagr(strat_rets, freq_year=freq_year),
             _max_drawdown(strat_rets),
+            _ann_turnover(weights, strat_rets, freq_year=freq_year),
             _ann_cost_ratio(costs, strat_rets, freq_year=freq_year),
         ],  # type: ignore
         keys=[
@@ -224,6 +231,7 @@ def backtest(
             "annual_volatility",
             "cagr",
             "max_drawdown",
+            "annual_turnover",
             "annual_cost_ratio",
         ],
         axis=1,
@@ -233,20 +241,23 @@ def backtest(
     port_rets = strat_rets.sum(axis=1)
     port_curve = equity_curve(port_rets)
     port_costs = costs.abs().sum(axis=1)
+    port_ann_turnover = (strat_perf["annual_turnover"] * weights.mean().abs()).sum()
 
-    # Combine the asset and strategy performance metrics into a single dataframe for comparison
+    # Consolidate the asset and strategy performance metrics into a single dataframe for comparison
     perf = pd.concat(
         [asset_perf, strat_perf],
         keys=["asset", "strategy"],
         axis=1,
     )
 
+    # Consolidate the portoflio, asset and strategy equity curves for plotting
     perf_curve = pd.concat(
         [port_curve, asset_curve, strat_curve],
         keys=["portfolio", "asset", "strategy"],
         axis=1,
     ).rename(columns={0: "equity_curve"})
 
+    # Consolidate the rolling annualized Sharpe ratio for the portfolio, asset and strategy for plotting
     perf_roll_sr = pd.concat(
         [
             _ann_roll_sharpe(
@@ -272,7 +283,11 @@ def backtest(
         axis=1,
     ).rename(columns={0: "sharpe"})
 
-    def calc_port_metrics(port_rets: pd.Series, costs: pd.Series, freq_year: int):
+    # Calculate the portfolio performance metrics in a nested function
+    # Called for each bootstrapped sample
+    def calc_port_metrics(
+        port_rets: pd.Series, port_ann_turnover: float, costs: pd.Series, freq_year: int
+    ):
         return pd.DataFrame(
             {
                 "annual_sharpe": _ann_sharpe(
@@ -283,6 +298,7 @@ def backtest(
                 "annual_volatility": _ann_vol(port_rets, freq_year=freq_year),
                 "cagr": _cagr(port_rets, freq_year=freq_year),
                 "max_drawdown": _max_drawdown(port_rets),
+                "annual_turnover": port_ann_turnover,
                 "annual_cost_ratio": _ann_cost_ratio(
                     costs, port_rets, freq_year=freq_year
                 ),
@@ -290,12 +306,15 @@ def backtest(
             index=["observed"],
         )
 
-    port_perf = calc_port_metrics(port_rets, port_costs, freq_year)
+    # Calculate the observed portfolio performance metrics
+    port_perf = calc_port_metrics(port_rets, port_ann_turnover, port_costs, freq_year)
+
+    # Bootstrap estimation of portfolio performance using n samples
     if bootstrap_n > 0:
-        sampled_rets = _bootstrap_sampling(
+        bs_sampled = _bootstrap_sampling(
             port_rets, n=bootstrap_n, stationary_method=True
         )
-        sampled_perf = pd.concat([calc_port_metrics(rets, port_costs, freq_year) for rets in sampled_rets])  # type: ignore
+        sampled_perf = pd.concat([calc_port_metrics(sampled_rets, port_ann_turnover, port_costs, freq_year) for sampled_rets in bs_sampled])  # type: ignore
 
         def describe(x):
             return pd.Series(
@@ -310,6 +329,9 @@ def backtest(
 
         port_perf = pd.concat([port_perf, sampled_perf.apply(describe)]).round(4)
 
+    # Finally return a tuple of the various performance data
+    ts_end = time.time()
+    logging.info(f"Backtest complete in {ts_end - ts_start:.2f} seconds.")
     return (perf, perf_curve, perf_roll_sr, port_perf, port_rets)
 
 
@@ -319,7 +341,7 @@ def _bootstrap_sampling(
     seed: int = 1,
     stationary_method: bool = False,
 ) -> List[pd.Series]:
-
+    """Bootstrap sampling of a time series, optionally using a stationary method."""
     samples = []
 
     rs = RandomState(MT19937(SeedSequence(seed)))
@@ -341,72 +363,10 @@ def _bootstrap_sampling(
     return samples
 
 
-def plot_distribution(observed: float, sampled: pd.Series):
-    """Plot the distribution of sampled values against the observed value.
-
-    Args:
-        observed: Observed value e.g. your original backtested annualized Sharpe.
-        sampled: Sampled values e.g. bootstrapped Sharpes.
-    """
-
-    plt.figure(figsize=(10, 6))
-    plt.hist(sampled, bins=100, alpha=0.75, color="grey")
-
-    # Plot standard deviation lines
-    mu = float(np.mean(sampled))
-    std = float(np.std(sampled))
-    for i in range(1, 4):
-        plt.axvline(
-            mu + (i * std),
-            color="grey",
-            linestyle="dashed",
-            linewidth=1,
-        )
-        plt.axvline(
-            mu - (i * std),
-            color="grey",
-            linestyle="dashed",
-            linewidth=1,
-        )
-
-    # Plot statistical significance percentile
-    simulated_sorted = np.sort(sampled)
-    upper_ci = np.percentile(simulated_sorted, 97.5)
-    plt.axvline(
-        upper_ci,
-        color="green",
-        linestyle="solid",
-        linewidth=1,
-        label=f"Upper 95% CI ({upper_ci:.2f})",
-    )
-    lower_ci = np.percentile(simulated_sorted, 2.5)
-    plt.axvline(
-        lower_ci,
-        color="green",
-        linestyle="solid",
-        linewidth=1,
-        label=f"Lower 95% CI ({lower_ci:.2f})",
-    )
-
-    # Plot baseline
-    pctile = stats.percentileofscore(sampled, observed)
-    plt.axvline(
-        observed,
-        color="red",
-        linestyle="solid",
-        linewidth=1,
-        label=f"Baseline {observed:.2f} ({pctile:.2f}%)",
-    )
-
-    plt.title("Distribution of Sampled vs Observed")
-    plt.legend()
-    plt.show()
-
-
 def _log_rets(
     data: Union[pd.DataFrame, pd.Series],
 ) -> Union[pd.DataFrame, pd.Series]:
-    """Calculate log returns from data."""
+    """Generate log returns from data."""
     return np.log(data / data.shift(1))  # type: ignore
 
 
@@ -466,6 +426,34 @@ def _max_drawdown(log_rets: Union[pd.DataFrame, pd.Series]) -> Union[pd.Series, 
     hwm = curve.cummax()
     dd = (curve - hwm) / hwm
     return dd.min()  # type: ignore
+
+
+def _ann_turnover(
+    weights: Union[pd.DataFrame, pd.Series],
+    log_rets: Union[pd.DataFrame, pd.Series],
+    freq_year: int = DEFAULT_TRADING_DAYS_YEAR,
+) -> Union[pd.Series, float]:
+    """Calculate the annualized turnover of the strategy."""
+    # Calculate the delta of the weight between each interval
+    # Buy will be +ve, sell will be -ve
+    diff = weights.fillna(0).diff()
+
+    # Sum the volume of the buy and sell trades
+    buy_volume = diff.where(lambda x: x.gt(0), 0).abs().sum()
+    sell_volume = diff.where(lambda x: x.lt(0), 0).abs().sum()
+
+    # Traded volume is the minimum of the buy and sell volumes
+    # Wrap in Series in case of scalar volume sum (when weights is a Series)
+    trade_volume = pd.concat(
+        [pd.Series(buy_volume), pd.Series(sell_volume)], axis=1
+    ).min(axis=1)
+
+    # Calculate the average portfolio value from the equity curve
+    # Finally take the ratio of trading volume to mean portfolio value
+    equity_avg = equity_curve(log_rets).mean()
+    turnover = trade_volume / equity_avg
+    ann_turnover = turnover / (log_rets.count() / freq_year)
+    return ann_turnover
 
 
 def _ann_cost_ratio(

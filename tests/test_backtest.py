@@ -1,13 +1,12 @@
 import sys
 import os
-from functools import partial
 from pathlib import PurePath
 import logging
 
 import numpy as np
 import pandas as pd
 
-import alphavec.backtest as vbt
+import alphavec.backtest as av
 
 workspace_root = str(PurePath(os.getcwd()))
 sys.path.append(workspace_root)
@@ -47,7 +46,7 @@ def test_backtest_fixed_weights():
     weights = prices.copy()
     weights[:] = 1
 
-    perf, _, _, _, _ = vbt.backtest(
+    perf, _, _, _, _ = av.backtest(
         weights,
         prices,
         freq_day=1,
@@ -66,7 +65,7 @@ def test_backtest_external_validation():
     weights = prices.copy()
     weights[:] = 0.5
 
-    _, _, perf_sr, _, _ = vbt.backtest(
+    _, _, perf_sr, _, _ = av.backtest(
         weights,
         prices,
         freq_day=1,
@@ -82,7 +81,7 @@ def test_backtest_external_validation():
 def test_pct_commission():
     weights = pd.Series([0, np.nan, 0, 1, -2.5])
     prices = pd.Series([10, 10, 10, 10, 10])
-    act = vbt.pct_commission(weights, prices, 0.1)
+    act = av.pct_commission(weights, prices, 0.1)
 
     assert np.isnan(act.iloc[0])  # Case: no fee, NaN introduced due to diff()
     assert act.iloc[1] == 0  # Case: no fee, zero to NaN
@@ -94,10 +93,20 @@ def test_pct_commission():
 def test_ann_cost_ratio():
     weights = pd.Series([0, np.nan, 0, 1, -2.5])
     prices = pd.Series([10, 20, 40, 80, 40])
-    returns = weights * vbt._log_rets(prices)
+    returns = weights * av._log_rets(prices)
 
-    act = vbt._ann_cost_ratio(weights, returns).squeeze().round(2)
+    act = av._ann_cost_ratio(weights, returns).squeeze().round(2)
     assert act == 61.62
+    logging.info(act)
+
+
+def test_ann_turnover():
+    weights = pd.Series([0, np.nan, 0, 1, -2.5])
+    prices = pd.Series([10, 20, 40, 80, 40])
+    returns = weights * av._log_rets(prices)
+
+    act = av._ann_turnover(weights, returns).squeeze().round(2)
+    assert act == 17.61
     logging.info(act)
 
 
@@ -105,7 +114,7 @@ def test_spread():
     weights = pd.Series([np.nan, 0.5, -2.5])
     prices = pd.Series([10, 10, 10])
 
-    act = vbt._spread(weights, prices, 0.02)
+    act = av._spread(weights, prices, 0.02)
     logging.info(act)
     assert act.iloc[2] == 0.3  # Case: spread cost
 
@@ -116,6 +125,6 @@ def test_borrow():
     rate = 0.1
     periods = 10
 
-    act = vbt._borrow(weights, prices, rate, periods)
+    act = av._borrow(weights, prices, rate, periods)
     assert act.iloc[0] == 0  # Case: zero leverage
     assert act.iloc[1].round(2) == 0.36  # Case: weight with leverage
