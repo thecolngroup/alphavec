@@ -16,9 +16,9 @@ $$  __$$ |$$ |$$ |  $$ |$$ |  $$ |$$  __$$ | \$$$  /  $$   ____|$$ |
 
 Alphavec is a lightning fast, minimalist, cost-aware vectorized backtest engine inspired by https://github.com/Robot-Wealth/rsims.
 
-The backtest input is the natural output of a typical quant research process - a time series of portfolio weights. You simply provide a dataframe of strategy weights and a dataframe of asset prices, along with some optional cost parameters and the backtest returns a streamlined performance report with insight into the key metrics of sharpe, volatility, CAGR, drawdown et al.
+The backtest input is the natural output of a typical quant research process - a time series of portfolio weights. You simply provide a dataframe of weights and a dataframe of prices, along with some optional cost parameters and the backtest returns a streamlined performance report with insight into the key metrics of sharpe, volatility, CAGR, drawdown et al.
 
-In addition, onvenience functions are included for robustness checking such as sampling of random contiguous periods and adding noise to a price series.
+Thanks to the speed offered by vectorization, the observed portfolio performance metrics are automatically complemented with bootstrapped (n = 1000) estimations of upper and lower confidence limits. This gives a deeper insight into the potential future variance in outcomes for your strategy.
 
 ## Rationale
 
@@ -26,17 +26,22 @@ Alphavec is an antidote to the various bloated and complex backtest frameworks.
 
 To validate ideas all you really need is...
 
-``` weights * returns.shift(-1) ```
+```python
 
-The goal was to add just enough extra complexity to this basic formula in order to support sound development of cost-aware systematic trading strategies.
+weights * returns.shift(-1)
+```
+
+The goal was to add just enough extra complexity to this basic formula to support sound development of cost-aware systematic trading strategies.
 
 ## Install
 
-``` pip install git+https://github.com/breaded-xyz/alphavec@main```
+```
+pip install git+https://github.com/breaded-xyz/alphavec@main
+```
 
 ## Usage
 
-See the notebook ```example.ipynb``` for a walkthrough of designing and testing a strategy using Alphavec.
+See the notebook ```example.ipynb``` for a walkthrough of designing and testing a rudimentary strategy using Alphavec.
 
 ```python
 
