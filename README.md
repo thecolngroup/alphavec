@@ -52,16 +52,16 @@ weights = generate_strategy_weights()
 results = av.backtest(
     weights,
     prices,
-    freq_day=1,  # daily price periods
-    trading_days_year=365,  # crypto is a 365 market
-    shift_periods=1,  # close prices so we shift 1 period
+    freq_day=1,  # 1 for daily price periods
+    trading_days_year=365,  # 365 for a 24/7 market such as crypto
+    shift_periods=1,  # shift 1 period for close prices
     commission_func=partial(
         av.pct_commission, fee=0.001
-    ),  # 0.1% fee on each traded amount
-    spread_pct=0.0005,  # 0.05% spread on each streade
+    ),  # 0.1% fee on each trade
+    spread_pct=0.0005,  # 0.05% spread on each trade
     ann_borrow_rate=0.05,  # 5% annual borrowing rate for leveraged positions
     ann_risk_free_rate=0,  # 0% risk free rate used to calculate Sharpe ratio
-    bootstrap_n=1000,  # number of bootstrap iterations to calculate confidence intervals
+    bootstrap_n=1000,  # 1000 bootstrap iterations to calculate confidence intervals
 )
 
 ```
