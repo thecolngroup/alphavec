@@ -1,5 +1,3 @@
-# alphavec
-
 ```
           $$\           $$\                                               
           $$ |          $$ |                                              
@@ -41,25 +39,49 @@ pip install git+https://github.com/breaded-xyz/alphavec@main
 
 ## Usage
 
-See the notebook ```example.ipynb``` for a walkthrough of designing and testing a rudimentary strategy using Alphavec.
+See the notebook [alphavec.ipynb](alphavec.ipynb) for a walkthrough of designing and testing a rudimentary strategy using Alphavec.
 
 ```python
 
 from functools import partial
 import alphavec as av
 
-prices = load_asset_prices()
-weights = generate_weights()
+prices = load_daily_crypto_close_prices()
+weights = generate_strategy_weights()
 
-result = av.backtest(
+results = av.backtest(
     weights,
     prices,
-    freq_day=1,
-    trading_days_year=365,
-    shift_periods=1,
-    commission_func=partial(av.pct_commission, fee=0.001),
-    spread_pct=0.001,
-    ann_borrow_rate=0.05,
-    ann_risk_free_rate=0.002
+    freq_day=1,  # daily price periods
+    trading_days_year=365,  # crypto is a 365 market
+    shift_periods=1,  # close prices so we shift 1 period
+    commission_func=partial(
+        av.pct_commission, fee=0.001
+    ),  # 0.1% fee on each traded amount
+    spread_pct=0.0005,  # 0.05% spread on each streade
+    ann_borrow_rate=0.05,  # 5% annual borrowing rate for leveraged positions
+    ann_risk_free_rate=0,  # 0% risk free rate used to calculate Sharpe ratio
+    bootstrap_n=1000,  # number of bootstrap iterations to calculate confidence intervals
 )
+
 ```
+
+## Example Results
+
+### Performance Table
+
+Bootstrapped estimators of the performance distribution give deeper insight into the expected real-world results.
+
+![alt text](img/port_perf.png)
+
+### Equity Curve
+![alt text](img/equity_curve.png)
+
+### Rolling Sharpe
+![alt text](img/ann_sharpes.png)
+
+## 🚀 Zero 2 Algo 🚀
+
+As a kwant-curious retail trader are you interested in learning how to design, build and deploy a complete automated real-world strategy validated with Alphavec?
+
+Check out my forthcoming project **Zero 2 Algo**
