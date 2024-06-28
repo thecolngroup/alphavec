@@ -1,3 +1,11 @@
+
+>**Disclaimer**
+>
+>The content provided in this project is for informational purposes only and does not constitute financial advice. This information should not be construed as professional financial advice, and it is recommended to consult with a qualified financial advisor before making any financial decisions.
+>
+>No liability is accepted for any losses or damages incurred as a result of acting or refraining from action based on the information provided in this project. Use this information at your own risk.
+>
+
 ```
           $$\           $$\                                               
           $$ |          $$ |                                              
